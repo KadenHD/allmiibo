@@ -1,67 +1,78 @@
-# Workflow de l’application
+# Application workflow
 
-## Objectif
+## Goal
 
-Allmiibo Manager masque le protocole BLE, les lettres de disque et les dossiers
-internes. L’utilisateur gère uniquement sa bibliothèque d’amiibos.
+Allmiibo Manager hides the BLE protocol, drive letters, and internal folders.
+Users manage only their amiibo library.
 
-## Parcours principal
+## Primary flow
 
-1. L’application démarre et recherche automatiquement un Allmiibo/Pixl.js en
-   mode **Bluetooth Transmission**.
-2. Après connexion, elle garde la session BLE ouverte et affiche la bibliothèque
-   distante sous forme d’arborescence.
-3. L’utilisateur peut ajouter des fichiers `.bin`, ajouter un dossier, créer,
-   renommer ou supprimer un élément, puis actualiser la bibliothèque.
-4. L’import automatique accepte le ZIP téléchargé depuis le dossier Google
-   Drive indiqué dans l’application. L’archive est extraite fidèlement dans le
-   dossier temporaire Windows, synchronisée, puis supprimée automatiquement.
-5. Pendant l’import : contenu identique ignoré, contenu différent remplacé,
-   nouveau contenu ajouté. Les fichiers distants absents du ZIP sont conservés.
-6. La connexion est surveillée tant que l’application reste ouverte. Une erreur
-   ramène vers un écran de reconnexion sans exposer les détails du protocole ;
-   les tentatives reprennent automatiquement toutes les 4 à 30 secondes.
-7. L’en-tête affiche l’espace disponible recalculé après chaque actualisation ou
-   opération. Un glisser-déposer sélectionne le dossier réellement survolé et
-   annonce sa destination dans la zone d’activité.
-8. La première colonne permet de cocher plusieurs fichiers et dossiers. Sa case
-   d’en-tête sélectionne ou désélectionne tous les éléments autorisés, le bouton de
-   suppression indique leur nombre et une confirmation récapitule les cibles.
-   Seule la colonne **Nom** porte l’indentation des sous-dossiers afin que les
-   cases restent toujours alignées et visibles.
-9. Le bandeau d’aide rappelle que Kirby Air Riders nécessite Pixl.js 2.16+ et
-   fournit un accès direct à l’outil DFU ainsi qu’aux releases du firmware.
-10. Un clic dans le vide de l’arborescence sélectionne la racine
-    **Bibliothèque**. Les ajouts suivants ne réutilisent donc jamais
-    silencieusement le dernier dossier sélectionné.
-11. En largeur réduite, un bouton **Plus** suit immédiatement les actions encore
-    visibles et contient uniquement celles qui ne tiennent plus sur la ligne.
-12. La fenêtre peut être fermée immédiatement depuis l’écran initial : une
-    recherche BLE active est annulée sans attendre son délai d’expiration ni la
-    prochaine tentative automatique.
+1. The application starts and automatically scans for an Allmiibo/Pixl.js in
+   **Bluetooth Transmission** mode.
+2. After connecting, it keeps the BLE session open and displays the remote
+   library as a folder tree.
+3. Users can add `.bin` files, upload a folder, create, rename, or delete an
+   item, and refresh the library.
+4. Automatic import accepts the ZIP downloaded from the Google Drive folder
+   linked by the application. It extracts the archive faithfully into a Windows
+   temporary directory, synchronizes it, and deletes it automatically.
+5. During import, identical content is skipped, different content is
+   overwritten, and new content is added. Remote files missing from the ZIP are
+   preserved.
+6. The connection is monitored while the application remains open. An error
+   returns to a reconnection screen without exposing protocol details. Attempts
+   resume automatically with delays from 4 to 30 seconds.
+7. The header shows available storage recalculated after each refresh or
+   operation. Drag-and-drop selects the folder under the pointer and displays
+   the destination in the activity area.
+8. The first column can select multiple files and folders. Its header checkbox
+   selects or clears every allowed item, the delete button displays the count,
+   and one confirmation summarizes the targets. Only the **Name** column carries
+   child indentation, keeping every checkbox aligned and visible.
+9. The help banner states that Kirby Air Riders requires Pixl.js 2.16+ and links
+   directly to the DFU tool and firmware releases.
+10. The **amiibo** root is visible and selectable. Clicking empty tree space also
+    selects it, so later uploads never silently reuse the previous destination.
+11. At narrow widths, a **More** button follows the remaining visible actions
+    and contains only the commands that do not fit.
+12. The window can be closed immediately from the initial screen. An active BLE
+    scan is cancelled without waiting for its timeout or the next automatic
+    retry.
+13. The first inventory creates an in-memory index. Every successful mutation
+    updates it locally and sends only additions, changes, and removals to the
+    displayed folder tree. Only **Refresh** invalidates the index, scans every
+    folder again, and rebuilds the complete display.
+14. Long operations report their stages in **Details** and the compact status.
+    A heartbeat every five seconds confirms that communication continues during
+    an individual slow BLE request. Transfer progress replaces the heartbeat as
+    soon as file events begin. The final duration is appended to the log.
+15. The Windows taskbar reflects indeterminate work, progress, success, and
+    failure. A sound and subtle notification announce completed ZIP imports,
+    multi-file uploads, and group deletions.
 
-## Règles de sécurité
+## Safety rules
 
-- Toutes les opérations visibles sont limitées à la bibliothèque `amiibo`.
-- La suppression de la racine est interdite.
-- Les dossiers `fav` et `data` ne peuvent jamais être supprimés ou renommés.
-  Tout dossier parent qui les contient est également exclu d’une suppression
-  récursive.
-- Une suppression manuelle demande toujours confirmation.
-- Un même répertoire ne peut pas contenir deux dossiers de même nom, même si
-  seule la casse diffère.
-- Le renommage d’un amiibo ne rend jamais son extension `.bin` modifiable.
-- Le remplacement d’un fichier passe par une copie temporaire vérifiée avec
-  restauration de l’original si l’opération échoue.
-- Aucun ZIP ni fichier importé n’est conservé par l’application.
-- Aucun nom n’est réécrit : pas d’alias, de suppression de préfixe ou de
-  raccourcissement automatique. Un chemin manuel incompatible avec le protocole
-  est refusé explicitement avant l’envoi.
-- Les détails d’import séparent la préparation du ZIP de la synchronisation BLE ;
-  ceux d’une suppression donnent les cibles et les totaux de fichiers et dossiers.
+- Every visible operation is restricted to the `amiibo` library.
+- The library root cannot be deleted.
+- The `fav` and `data` folders cannot be deleted or renamed. Any parent folder
+  containing them is also excluded from recursive deletion.
+- Manual deletion always requires confirmation.
+- One directory cannot contain two folders with the same case-insensitive name.
+- Renaming an amiibo never makes its `.bin` extension editable.
+- File replacement uses a verified temporary copy and restores the original if
+  the operation fails.
+- The application retains no ZIP archive or imported file.
+- Names are never rewritten: no aliases, prefix removal, or automatic
+  shortening. A manual path that violates protocol limits is rejected before
+  upload.
+- Import details separate ZIP preparation from BLE synchronization. Deletion
+  details list targets and file/folder totals.
+- The in-memory index is cleared on disconnection. Changes made with another
+  tool during the session become visible through **Refresh**, which rebuilds the
+  index from the device.
 
-## Décision encore ouverte
+## Open decision
 
-L’import ZIP fonctionne comme une mise à jour fusionnée et conserve les fichiers
-présents uniquement sur l’appareil. Un futur mode « miroir exact » pourrait les
-supprimer, mais devra être séparé et accompagné d’une confirmation forte.
+ZIP import currently performs a merged update and preserves files found only on
+the device. A future exact-mirror mode could delete them, but it must remain a
+separate operation with a strong confirmation.

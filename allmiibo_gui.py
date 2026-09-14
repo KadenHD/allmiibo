@@ -2,7 +2,7 @@
 """Connected-first Windows library manager for Allmiibo/Pixl.js.
 
 THESIS: The device is the workspace; local files are inputs, never the product.
-OWN-WORLD: A calm graphite utility with mint connection signals and one coral
+OWN-WORLD: A calm graphite utility with mint connection signals and one forest
 import action, using native explorer controls instead of dashboard cards.
 STORY: Connect, see the real library, make a precise change, receive proof.
 FIRST VIEWPORT: Connection state in the header, device tree at full scale, one
@@ -13,15 +13,19 @@ FORM: Persistent device explorer; dense where files matter, quiet elsewhere.
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import os
 import sys
 import traceback
+import uuid
+from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from queue import Empty, Queue
 from threading import Event
 from typing import Any
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, QThread, QTimer, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, QThread, QTimer, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -32,6 +36,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPen,
+    QPixmap,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -49,6 +54,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
     QStyle,
+    QSystemTrayIcon,
     QTextEdit,
     QToolButton,
     QTreeWidget,
@@ -63,6 +69,7 @@ from allmiibo_manager import (
     DeleteReport,
     ImportReport,
     RemoteItem,
+    TransferReport,
     is_protected_directory_path,
 )
 from allmiibo_ble import (
@@ -89,6 +96,112 @@ def resource_path(relative_path: str) -> Path:
 
 
 APP_ICON_PATH = resource_path("assets/amiibo-app-icon-source.png")
+
+
+@dataclass(frozen=True)
+class LibraryDelta:
+    """Minimal changes needed to keep the visible tree in sync."""
+
+    upserted: tuple[RemoteItem, ...]
+    removed: tuple[str, ...]
+
+
+class WindowsTaskbarProgress:
+    """Small dependency-free wrapper around Windows ITaskbarList3."""
+
+    NO_PROGRESS = 0
+    INDETERMINATE = 1
+    NORMAL = 2
+    ERROR = 4
+
+    def __init__(self, window: QMainWindow) -> None:
+        self._pointer: ctypes.c_void_p | None = None
+        self._window = window
+        if sys.platform != "win32":
+            return
+        try:
+            class Guid(ctypes.Structure):
+                _fields_ = [
+                    ("data1", ctypes.c_uint32),
+                    ("data2", ctypes.c_uint16),
+                    ("data3", ctypes.c_uint16),
+                    ("data4", ctypes.c_ubyte * 8),
+                ]
+
+                @classmethod
+                def parse(cls, value: str) -> "Guid":
+                    return cls.from_buffer_copy(uuid.UUID(value).bytes_le)
+
+            pointer = ctypes.c_void_p()
+            result = ctypes.windll.ole32.CoCreateInstance(
+                ctypes.byref(Guid.parse("56FDF344-FD6D-11D0-958A-006097C9A090")),
+                None,
+                1,
+                ctypes.byref(Guid.parse("EA1AFB91-9E28-4B86-90E9-9E9F8A5EEA84")),
+                ctypes.byref(pointer),
+            )
+            if result < 0 or not pointer.value:
+                return
+            self._pointer = pointer
+            self._invoke(3, ctypes.c_long)
+        except Exception:
+            self._pointer = None
+
+    def _invoke(self, index: int, result_type: Any, *arguments: Any) -> Any:
+        if self._pointer is None:
+            return None
+        vtable = ctypes.cast(
+            self._pointer,
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)),
+        ).contents
+        argument_types = [ctypes.c_void_p] + [type(value) for value in arguments]
+        function = ctypes.WINFUNCTYPE(result_type, *argument_types)(vtable[index])
+        return function(self._pointer, *arguments)
+
+    def _set_state(self, state: int) -> None:
+        try:
+            self._invoke(
+                10,
+                ctypes.c_long,
+                ctypes.c_void_p(int(self._window.winId())),
+                ctypes.c_uint(state),
+            )
+        except Exception:
+            self._pointer = None
+
+    def indeterminate(self) -> None:
+        self._set_state(self.INDETERMINATE)
+
+    def set_value(self, current: int, total: int) -> None:
+        if total <= 0:
+            self.indeterminate()
+            return
+        try:
+            self._set_state(self.NORMAL)
+            self._invoke(
+                9,
+                ctypes.c_long,
+                ctypes.c_void_p(int(self._window.winId())),
+                ctypes.c_ulonglong(max(0, current)),
+                ctypes.c_ulonglong(max(1, total)),
+            )
+        except Exception:
+            self._pointer = None
+
+    def error(self) -> None:
+        self._set_state(self.ERROR)
+
+    def clear(self) -> None:
+        self._set_state(self.NO_PROGRESS)
+
+    def close(self) -> None:
+        if self._pointer is None:
+            return
+        try:
+            self.clear()
+            self._invoke(2, ctypes.c_ulong)
+        finally:
+            self._pointer = None
 
 
 class ConnectionVisual(QWidget):
@@ -167,8 +280,8 @@ class SelectionHeader(QHeaderView):
         self.checkbox = GlobalSelectionCheckBox(self.viewport())
         self.checkbox.setTristate(True)
         self.checkbox.setEnabled(False)
-        self.checkbox.setToolTip("Sélectionner tous les éléments supprimables")
-        self.checkbox.setAccessibleName("Sélectionner tous les éléments supprimables")
+        self.checkbox.setToolTip("Select all deletable items")
+        self.checkbox.setAccessibleName("Select all deletable items")
         self.checkbox.toggle_requested.connect(
             lambda checked: self.toggle_requested.emit(checked)
         )
@@ -248,12 +361,16 @@ class ResponsiveActionBar(QWidget):
         self._layout.setSpacing(4)
         self.more_menu = QMenu(self)
         self.more_button = QToolButton(self)
-        self.more_button.setText("Plus")
-        self.more_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.more_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.more_button.setMenu(self.more_menu)
-        self.more_button.setAccessibleName("Plus d’actions")
-        self.more_button.setToolTip("Afficher les autres actions")
+        self.more_button.setText("More")
+        self.more_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.more_button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.more_button.setIconSize(QSize(12, 12))
+        self._set_more_expanded(False)
+        self.more_button.clicked.connect(self._open_more_menu)
+        self.more_menu.aboutToShow.connect(lambda: self._set_more_expanded(True))
+        self.more_menu.aboutToHide.connect(lambda: self._set_more_expanded(False))
+        self.more_button.setAccessibleName("More actions")
+        self.more_button.setToolTip("Show additional actions")
         self.more_button.hide()
         self._layout.addWidget(self.more_button)
         self._layout.addStretch(1)
@@ -262,12 +379,38 @@ class ResponsiveActionBar(QWidget):
         button = QToolButton(self)
         button.setDefaultAction(action)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        button.setIconSize(QSize(22, 16))
+
+        def update_spaced_icon() -> None:
+            source = action.icon().pixmap(16, 16)
+            canvas = QPixmap(22, 16)
+            canvas.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(canvas)
+            painter.drawPixmap(0, 0, source)
+            painter.end()
+            button.setIcon(QIcon(canvas))
+
+        update_spaced_icon()
+        action.changed.connect(update_spaced_icon)
         if primary:
             button.setObjectName("primaryToolButton")
         self.entries.append((action, button))
         self._layout.insertWidget(len(self.entries) - 1, button)
         QTimer.singleShot(0, self.reflow)
         return button
+
+    def _set_more_expanded(self, expanded: bool) -> None:
+        pixmap = (
+            QStyle.StandardPixmap.SP_ArrowUp
+            if expanded
+            else QStyle.StandardPixmap.SP_ArrowDown
+        )
+        self.more_button.setIcon(self.style().standardIcon(pixmap))
+
+    def _open_more_menu(self) -> None:
+        self.more_menu.popup(
+            self.more_button.mapToGlobal(QPoint(0, self.more_button.height()))
+        )
 
     def reflow(self) -> None:
         if not self.entries:
@@ -311,9 +454,11 @@ class DeviceController(QThread):
     device_info_updated = Signal(object)
     disconnected = Signal(str)
     library_loaded = Signal(object)
+    library_changed = Signal(object)
     busy_changed = Signal(bool, str)
+    operation_detail = Signal(str)
     progress = Signal(int, int, str, str)
-    operation_done = Signal(str, object)
+    operation_done = Signal(str, object, float)
     operation_error = Signal(str, str)
 
     def __init__(self) -> None:
@@ -322,6 +467,8 @@ class DeviceController(QThread):
         self._shutdown_requested = Event()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._serve_task: asyncio.Task[None] | None = None
+        self._current_stage = ""
+        self._progress_active = False
 
     def submit(self, command: str, payload: Any = None) -> None:
         self._commands.put((command, payload))
@@ -370,7 +517,7 @@ class DeviceController(QThread):
                         except Exception as error:
                             await manager.close()
                             self.disconnected.emit(
-                                f"Connexion perdue : {self._friendly_error(error)}"
+                                f"Connection lost: {self._friendly_error(error)}"
                             )
                             retry_delay = 4.0
                     elif await self._connect(manager):
@@ -387,8 +534,8 @@ class DeviceController(QThread):
                     continue
                 if not manager.connected:
                     self.operation_error.emit(
-                        "Allmiibo non connecté",
-                        "Reconnectez l’appareil avant de continuer.",
+                        "Allmiibo not connected",
+                        "Reconnect the device before continuing.",
                     )
                     continue
 
@@ -399,74 +546,171 @@ class DeviceController(QThread):
             self._loop = None
 
     async def _connect(self, manager: AllmiiboManager) -> bool:
-        self.busy_changed.emit(True, "Analyse de l’arborescence existante…")
+        self._progress_active = False
+        self.busy_changed.emit(True, "Scanning the existing folder structure…")
         self.connection_state.emit(
-            "searching", "Activez Bluetooth Transmission sur l’Allmiibo."
+            "searching", "Enable Bluetooth Transmission on the Allmiibo."
         )
+        heartbeat: asyncio.Task[None] | None = None
         try:
             info = await manager.connect()
             self.connected.emit(info)
-            await self._refresh(manager)
+            self._emit_detail("BLE connection established.")
+            heartbeat = asyncio.create_task(self._heartbeat())
+            await self._refresh(manager, force_library=True)
             return True
         except Exception as error:
             await manager.close()
             self.disconnected.emit(self._friendly_error(error))
             return False
         finally:
+            await self._stop_heartbeat(heartbeat)
             self.busy_changed.emit(False, "")
 
-    async def _refresh(self, manager: AllmiiboManager) -> None:
+    def _emit_detail(self, message: str) -> None:
+        self._current_stage = message
+        self.operation_detail.emit(message)
+
+    async def _heartbeat(self) -> None:
+        started = asyncio.get_running_loop().time()
+        while True:
+            await asyncio.sleep(5)
+            if self._progress_active:
+                continue
+            elapsed = int(asyncio.get_running_loop().time() - started)
+            stage = self._current_stage or "Communicating with the Allmiibo…"
+            self.operation_detail.emit(
+                f"Still working ({elapsed} s) — {stage}"
+            )
+
+    @staticmethod
+    async def _stop_heartbeat(task: asyncio.Task[None] | None) -> None:
+        if task is None:
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    async def _refresh(
+        self,
+        manager: AllmiiboManager,
+        *,
+        force_library: bool,
+    ) -> None:
+        self._emit_detail("1/3 — Reading storage capacity…")
         info = await manager.refresh_info()
-        items = await manager.list_library()
+        self._emit_detail(
+            "2/3 — Scanning every folder on the Allmiibo…"
+            if force_library
+            else "2/3 — Reading the updated in-memory index…"
+        )
+        items = await manager.list_library(
+            force_refresh=force_library,
+            status_callback=self._emit_detail,
+        )
+        self._emit_detail("3/3 — Updating the displayed folder tree…")
         self.device_info_updated.emit(info)
         self.library_loaded.emit(items)
+
+    async def _publish_library_delta(
+        self,
+        manager: AllmiiboManager,
+        previous: dict[str, RemoteItem],
+    ) -> None:
+        self._emit_detail("Updating available storage…")
+        info = await manager.refresh_info()
+        items = await manager.list_library()
+        current = {item.relative_path: item for item in items}
+        delta = LibraryDelta(
+            upserted=tuple(
+                item
+                for path, item in current.items()
+                if previous.get(path) != item
+            ),
+            removed=tuple(path for path in previous if path not in current),
+        )
+        self._emit_detail(
+            "Incremental update: "
+            f"{len(delta.upserted)} added or changed, "
+            f"{len(delta.removed)} removed — no full scan."
+        )
+        self.device_info_updated.emit(info)
+        self.library_changed.emit(delta)
+
+    def _emit_progress(self, current: int, total: int, action: str, path: str) -> None:
+        self._progress_active = True
+        self.progress.emit(current, total, action, path)
 
     async def _dispatch(
         self, manager: AllmiiboManager, command: str, payload: Any
     ) -> None:
         labels = {
-            "refresh": "Actualisation de la bibliothèque…",
-            "upload": "Envoi des fichiers…",
-            "import": "Mise à jour complète de la bibliothèque…",
-            "mkdir": "Création du dossier…",
-            "rename": "Renommage…",
-            "delete": "Suppression…",
+            "refresh": "Refreshing the library…",
+            "upload": "Uploading files…",
+            "import": "Updating the full library…",
+            "mkdir": "Creating folder…",
+            "rename": "Renaming…",
+            "delete": "Deleting…",
         }
-        label = labels.get(command, "Opération en cours…")
+        label = labels.get(command, "Operation in progress…")
         if command == "upload":
             _, target = payload
-            destination = "Bibliothèque"
+            destination = "Library"
             if target:
                 destination += " › " + target.replace("/", " › ")
-            label = f"Envoi vers {destination}…"
+            label = f"Uploading to {destination}…"
+        self._current_stage = label
+        self._progress_active = False
         self.busy_changed.emit(True, label)
+        started = asyncio.get_running_loop().time()
+        heartbeat = asyncio.create_task(self._heartbeat())
         try:
             result: Any = None
+            previous = {
+                item.relative_path: item
+                for item in await manager.list_library()
+            }
             if command == "refresh":
-                pass
+                self._emit_detail(
+                    "Full refresh requested: the device will be scanned folder by folder."
+                )
+                await self._refresh(manager, force_library=True)
             elif command == "upload":
                 sources, target = payload
                 result = await manager.upload(
-                    sources, target, progress_callback=self.progress.emit
+                    sources,
+                    target,
+                    progress_callback=self._emit_progress,
+                    status_callback=self._emit_detail,
                 )
             elif command == "import":
                 result = await manager.import_archive(
-                    payload, progress_callback=self.progress.emit
+                    payload,
+                    progress_callback=self._emit_progress,
+                    status_callback=self._emit_detail,
                 )
             elif command == "mkdir":
                 parent, name = payload
-                result = await manager.create_folder(parent, name)
+                result = await manager.create_folder(
+                    parent, name, status_callback=self._emit_detail
+                )
             elif command == "rename":
                 relative, name = payload
-                result = await manager.rename(relative, name)
+                result = await manager.rename(
+                    relative, name, status_callback=self._emit_detail
+                )
             elif command == "delete":
                 targets = payload if isinstance(payload, list) else [payload]
-                result = await manager.delete_many(targets)
+                result = await manager.delete_many(
+                    targets, status_callback=self._emit_detail
+                )
             else:
-                raise ValueError(f"Commande inconnue : {command}")
+                raise ValueError(f"Unknown command: {command}")
 
-            await self._refresh(manager)
-            self.operation_done.emit(command, result)
+            if command != "refresh":
+                await self._publish_library_delta(manager, previous)
+            elapsed = asyncio.get_running_loop().time() - started
+            self.operation_done.emit(command, result, elapsed)
         except Exception as error:
             details = traceback.format_exc()
             self.operation_error.emit(self._friendly_error(error), details)
@@ -475,9 +719,10 @@ class DeviceController(QThread):
             except Exception:
                 await manager.close()
                 self.disconnected.emit(
-                    "La connexion avec l’Allmiibo a été interrompue."
+                    "The connection to the Allmiibo was interrupted."
                 )
         finally:
+            await self._stop_heartbeat(heartbeat)
             self.busy_changed.emit(False, "")
 
     @staticmethod
@@ -485,18 +730,18 @@ class DeviceController(QThread):
         if isinstance(error, (FileExistsError, FileNotFoundError, ValueError)):
             return str(error)
         if isinstance(error, BluetoothDependencyError):
-            return "Le composant Bluetooth de l’application est indisponible. Réinstallez Allmiibo Manager."
+            return "The application Bluetooth component is unavailable. Reinstall Allmiibo Manager."
         if isinstance(error, DeviceNotFoundError):
-            return "Aucun Allmiibo n’a été détecté. Activez Bluetooth Transmission et rapprochez l’appareil."
+            return "No Allmiibo was detected. Enable Bluetooth Transmission and move the device closer."
         if isinstance(error, DeviceCommandError):
-            return "L’Allmiibo a refusé l’opération. Vérifiez son écran, puis réessayez."
+            return "The Allmiibo rejected the operation. Check its screen, then try again."
         if isinstance(error, ProtocolError):
-            return "La réponse de l’Allmiibo est incomplète. Laissez-le allumé pendant la reconnexion."
+            return "The Allmiibo response is incomplete. Keep it powered on while reconnecting."
         if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
-            return "L’Allmiibo ne répond pas. Rapprochez-le du PC et laissez son écran allumé."
+            return "The Allmiibo is not responding. Move it closer to the PC and keep its screen on."
         if isinstance(error, OSError):
-            return "Bluetooth n’est pas disponible. Activez-le dans Windows, puis réessayez."
-        return "L’opération n’a pas pu aboutir. Consultez les détails, puis réessayez."
+            return "Bluetooth is unavailable. Enable it in Windows, then try again."
+        return "The operation could not be completed. Review the details, then try again."
 
 
 class MainWindow(QMainWindow):
@@ -510,6 +755,7 @@ class MainWindow(QMainWindow):
         self._selection_checkboxes: dict[str, QCheckBox] = {}
         self._protected_delete_paths: set[str] = set()
         self._actions: list[QAction] = []
+        self._notification_tray: QSystemTrayIcon | None = None
 
         self.setWindowTitle("Allmiibo Manager")
         if APP_ICON_PATH.is_file():
@@ -519,6 +765,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self._build_ui()
         self._apply_style()
+        self.taskbar_progress = WindowsTaskbarProgress(self)
 
         self.controller = DeviceController()
         self.controller.connection_state.connect(self._on_connection_state)
@@ -526,7 +773,9 @@ class MainWindow(QMainWindow):
         self.controller.device_info_updated.connect(self._update_device_info)
         self.controller.disconnected.connect(self._on_disconnected)
         self.controller.library_loaded.connect(self._populate_library)
+        self.controller.library_changed.connect(self._apply_library_delta)
         self.controller.busy_changed.connect(self._set_busy)
+        self.controller.operation_detail.connect(self._on_operation_detail)
         self.controller.progress.connect(self._on_progress)
         self.controller.operation_done.connect(self._on_operation_done)
         self.controller.operation_error.connect(self._on_operation_error)
@@ -545,7 +794,7 @@ class MainWindow(QMainWindow):
         brand.setSpacing(0)
         title = QLabel("Allmiibo Manager")
         title.setObjectName("brand")
-        subtitle = QLabel("Votre bibliothèque, directement sur l’appareil")
+        subtitle = QLabel("Your library, directly on the device")
         subtitle.setObjectName("muted")
         brand.addWidget(title)
         brand.addWidget(subtitle)
@@ -553,7 +802,7 @@ class MainWindow(QMainWindow):
         header.addStretch()
         self.storage_label = QLabel("")
         self.storage_label.setObjectName("muted")
-        self.connection_chip = QLabel(" Analyse… ")
+        self.connection_chip = QLabel(" Scanning… ")
         self.connection_chip.setObjectName("connectionChip")
         header.addWidget(self.storage_label)
         header.addWidget(self.connection_chip)
@@ -570,28 +819,28 @@ class MainWindow(QMainWindow):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(14)
         self.connection_visual = ConnectionVisual()
-        self.connection_title = QLabel("Analyse de l’arborescence existante")
+        self.connection_title = QLabel("Scanning the existing folder structure")
         self.connection_title.setObjectName("connectionTitle")
         self.connection_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.connection_body = QLabel(
-            "Sur l’appareil, ouvrez Bluetooth Transmission.\n"
-            "L’application se connectera puis recensera automatiquement vos dossiers."
+            "Open Bluetooth Transmission on the device.\n"
+            "The application will connect and scan your folders automatically."
         )
         self.connection_body.setObjectName("muted")
         self.connection_body.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.retry_button = QPushButton("Rechercher à nouveau")
+        self.retry_button = QPushButton("Search again")
         self.retry_button.setObjectName("primaryButton")
         self.retry_button.clicked.connect(self.controller_reconnect)
         self.retry_button.hide()
         resource_links = QHBoxLayout()
         resource_links.setSpacing(8)
-        library_button = QPushButton("Bibliothèque d’amiibos (Drive) ↗")
+        library_button = QPushButton("Amiibo library (Drive) ↗")
         library_button.setObjectName("linkButton")
         library_button.clicked.connect(self._open_library_source)
-        dfu_button = QPushButton("Mettre à jour le firmware (DFU) ↗")
+        dfu_button = QPushButton("Update firmware (DFU) ↗")
         dfu_button.setObjectName("linkButton")
         dfu_button.clicked.connect(self._open_dfu_update)
-        releases_button = QPushButton("Télécharger le firmware ↗")
+        releases_button = QPushButton("Download firmware ↗")
         releases_button.setObjectName("linkButton")
         releases_button.clicked.connect(self._open_firmware_releases)
         resource_links.addWidget(library_button)
@@ -619,20 +868,20 @@ class MainWindow(QMainWindow):
         guide_layout.setSpacing(4)
         library_row = QHBoxLayout()
         guide_label = QLabel(
-            "Bibliothèque complète : téléchargez le dossier Google Drive en ZIP, "
-            "puis importez-le."
+            "Complete library: download the Google Drive folder as a ZIP, "
+            "then import it."
         )
         guide_label.setWordWrap(True)
-        guide_link = QPushButton("Ouvrir le Drive ↗")
+        guide_link = QPushButton("Open Drive ↗")
         guide_link.setObjectName("linkButton")
         guide_link.clicked.connect(self._open_library_source)
         library_row.addWidget(guide_label, 1)
         library_row.addWidget(guide_link)
         firmware_row = QHBoxLayout()
-        firmware_note = QLabel("Kirby Air Riders : firmware Pixl.js 2.16+ requis.")
+        firmware_note = QLabel("Kirby Air Riders requires Pixl.js firmware 2.16+.")
         firmware_note.setObjectName("guideNote")
         firmware_note.setWordWrap(True)
-        dfu_link = QPushButton("Mise à jour DFU ↗")
+        dfu_link = QPushButton("DFU update ↗")
         dfu_link.setObjectName("linkButton")
         dfu_link.clicked.connect(self._open_dfu_update)
         releases_link = QPushButton("Releases ↗")
@@ -647,30 +896,33 @@ class MainWindow(QMainWindow):
 
         self.toolbar = ResponsiveActionBar()
         self.import_action = self._add_action(
-            "Importer le ZIP",
+            "Import ZIP",
             QStyle.StandardPixmap.SP_DialogOpenButton,
             self._choose_archive,
             primary=True,
         )
         self.add_action = self._add_action(
-            "Ajouter", QStyle.StandardPixmap.SP_FileIcon, self._choose_files
+            "Add files", QStyle.StandardPixmap.SP_FileIcon, self._choose_files
         )
         self.folder_action = self._add_action(
-            "Ajouter un dossier", QStyle.StandardPixmap.SP_DirIcon, self._choose_folder
+            "Add folder", QStyle.StandardPixmap.SP_DirIcon, self._choose_folder
         )
         self.new_folder_action = self._add_action(
-            "Nouveau dossier",
+            "New folder",
             QStyle.StandardPixmap.SP_FileDialogNewFolder,
             self._create_folder,
         )
         self.rename_action = self._add_action(
-            "Renommer", QStyle.StandardPixmap.SP_FileDialogDetailedView, self._rename
+            "Rename", QStyle.StandardPixmap.SP_FileDialogDetailedView, self._rename
         )
         self.delete_action = self._add_action(
-            "Supprimer", QStyle.StandardPixmap.SP_TrashIcon, self._delete
+            "Delete", QStyle.StandardPixmap.SP_TrashIcon, self._delete
         )
         self.refresh_action = self._add_action(
-            "Actualiser", QStyle.StandardPixmap.SP_BrowserReload, self._refresh
+            "Refresh", QStyle.StandardPixmap.SP_BrowserReload, self._refresh
+        )
+        self.refresh_action.setToolTip(
+            "Scan the entire device again. This operation may take several minutes."
         )
         layout.addWidget(self.toolbar)
 
@@ -681,13 +933,13 @@ class MainWindow(QMainWindow):
         explorer_layout.setSpacing(0)
         breadcrumb = QHBoxLayout()
         breadcrumb.setContentsMargins(14, 10, 14, 10)
-        self.library_label = QLabel("Bibliothèque")
+        self.library_label = QLabel("Library")
         self.library_label.setObjectName("sectionTitle")
         self.library_label.setProperty("active", True)
         self.library_label.setToolTip(
-            "Destination racine active. Cliquez dans le vide pour revenir ici."
+            "Root destination selected. Click empty space to return here."
         )
-        self.count_label = QLabel("Chargement…")
+        self.count_label = QLabel("Loading…")
         self.count_label.setObjectName("muted")
         breadcrumb.addWidget(self.library_label)
         breadcrumb.addStretch()
@@ -700,7 +952,7 @@ class MainWindow(QMainWindow):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         self.tree.setHeader(self.selection_header)
-        self.tree.setHeaderLabels(["", "Nom", "Type", "Taille"])
+        self.tree.setHeaderLabels(["", "Name", "Type", "Size"])
         self.tree.setTreePosition(1)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.tree.header().resizeSection(0, 46)
@@ -721,7 +973,7 @@ class MainWindow(QMainWindow):
         self.tree.empty_area_clicked.connect(self._select_library_root)
         explorer_layout.addWidget(self.tree, 1)
         self.empty_label = QLabel(
-            "La bibliothèque est vide. Ajoutez un fichier .bin ou importez le ZIP du Drive."
+            "The library is empty. Add a .bin file or import the ZIP from Drive."
         )
         self.empty_label.setObjectName("emptyState")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -736,9 +988,9 @@ class MainWindow(QMainWindow):
         activity_layout.setContentsMargins(14, 10, 14, 10)
         activity_layout.setSpacing(7)
         activity_header = QHBoxLayout()
-        self.activity_label = QLabel("Prêt")
+        self.activity_label = QLabel("Ready")
         self.activity_label.setObjectName("status")
-        self.log_toggle = QPushButton("Détails")
+        self.log_toggle = QPushButton("Details")
         self.log_toggle.setObjectName("linkButton")
         self.log_toggle.setCheckable(True)
         self.log_toggle.toggled.connect(self._toggle_log)
@@ -799,14 +1051,14 @@ class MainWindow(QMainWindow):
                 border: 1px solid #34404b; border-radius: 7px; padding: 8px 11px; }
             QToolButton:hover, QPushButton:hover { background: #2a3540;
                 border-color: #34404b; }
-            QToolButton#primaryToolButton { background: #e9785b; color: #1a0c08;
+            QToolButton#primaryToolButton { background: #176548; color: #ffffff;
                 border: none; font-weight: 700; }
-            QToolButton#primaryToolButton:hover { background: #f18a6e; }
+            QToolButton#primaryToolButton:hover { background: #1f7a59; }
             QToolButton:disabled, QPushButton:disabled { color: #65717c;
                 background: #171c22; border-color: #252c33; }
-            QPushButton#primaryButton { background: #e9785b; color: #1a0c08;
+            QPushButton#primaryButton { background: #176548; color: #ffffff;
                 border: none; font-weight: 700; padding: 10px 16px; }
-            QPushButton#primaryButton:hover { background: #f18a6e; }
+            QPushButton#primaryButton:hover { background: #1f7a59; }
             QPushButton#linkButton { background: transparent; border: none;
                 color: #82b8ff; padding: 5px; }
             QPushButton#linkButton:hover { color: #68a8ff; text-decoration: underline; }
@@ -840,12 +1092,12 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(0)
         self.connection_visual.set_connected(state == "connected")
         self.connection_title.setText(
-            "Analyse de l’arborescence existante"
+            "Scanning the existing folder structure"
             if state == "searching"
-            else "Connexion"
+            else "Connection"
         )
         self.connection_body.setText(message)
-        self.connection_chip.setText(" Analyse… ")
+        self.connection_chip.setText(" Scanning… ")
 
     @Slot(object)
     def _on_connected(self, info: ConnectionInfo) -> None:
@@ -865,25 +1117,26 @@ class MainWindow(QMainWindow):
     def _update_device_info(self, info: ConnectionInfo) -> None:
         self._device_info = info
         self.storage_label.setText(
-            f"{self._format_size(info.free_size)} disponibles sur "
+            f"{self._format_size(info.free_size)} available out of "
             f"{self._format_size(info.total_size)} · firmware {info.firmware_version}"
         )
 
     @Slot(str)
     def _on_disconnected(self, message: str) -> None:
         self._connected = False
+        self.taskbar_progress.clear()
         self._device_info = None
         self.connection_chip.setProperty("connected", False)
-        self.connection_chip.setText(" Hors connexion ")
+        self.connection_chip.setText(" Offline ")
         self.connection_chip.style().unpolish(self.connection_chip)
         self.connection_chip.style().polish(self.connection_chip)
         self.storage_label.clear()
         self.pages.setCurrentIndex(0)
         self.connection_visual.set_connected(False)
-        self.connection_title.setText("Allmiibo introuvable")
+        self.connection_title.setText("Allmiibo not found")
         self.connection_body.setText(
             message
-            + "\n\nNouvelle tentative automatique dans quelques secondes."
+            + "\n\nAnother attempt will start automatically in a few seconds."
         )
         self.retry_button.show()
         self._update_action_state()
@@ -893,14 +1146,52 @@ class MainWindow(QMainWindow):
         selected_path = self._selected_path()
         checked_paths = set(self._checked_delete_paths())
         self._items = {item.relative_path: item for item in items}
+        self._recompute_protected_paths()
+        self.tree.blockSignals(True)
+        self.tree.clear()
+        self._selection_checkboxes = {}
+
+        root_item = QTreeWidgetItem(["", "amiibo", "Folder", ""])
+        root_item.setData(0, Qt.ItemDataRole.UserRole, "")
+        root_item.setIcon(1, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
+        self.tree.addTopLevelItem(root_item)
+        root_checkbox = QCheckBox()
+        root_checkbox.setEnabled(False)
+        root_checkbox.setAccessibleName("amiibo root, cannot be deleted")
+        root_checkbox.setToolTip("The amiibo root cannot be deleted.")
+        self._set_checkbox_widget(root_item, root_checkbox)
+        self._tree_nodes = {"": root_item}
+
+        try:
+            for remote in sorted(
+                items,
+                key=lambda item: (
+                    len(PurePosixPath(item.relative_path).parts),
+                    not item.is_directory,
+                    item.name.casefold(),
+                ),
+            ):
+                self._insert_remote_node(remote, checked_paths)
+            selected_item = self._tree_nodes.get(selected_path, root_item)
+            self.tree.setCurrentItem(selected_item)
+        finally:
+            self.tree.blockSignals(False)
+
+        root_item.setExpanded(True)
+        self.tree.expandToDepth(1)
+        self._update_library_summary()
+        self._set_library_root_active(self._selected_path() == "")
+        self._update_action_state()
+
+    def _recompute_protected_paths(self) -> None:
         protected_folders = {
             PurePosixPath(item.relative_path)
-            for item in items
+            for item in self._items.values()
             if item.is_directory and is_protected_directory_path(item.relative_path)
         }
         self._protected_delete_paths = {
             item.relative_path
-            for item in items
+            for item in self._items.values()
             if item.is_directory
             and any(
                 protected == PurePosixPath(item.relative_path)
@@ -908,79 +1199,143 @@ class MainWindow(QMainWindow):
                 for protected in protected_folders
             )
         }
-        self.tree.blockSignals(True)
-        self.tree.clear()
-        self._selection_checkboxes = {}
-        nodes: dict[str, QTreeWidgetItem] = {}
-        folders = 0
-        files = 0
-        try:
-            for remote in items:
-                relative = PurePosixPath(remote.relative_path)
-                parent_key = relative.parent.as_posix()
-                parent = nodes.get(parent_key)
-                tree_item = QTreeWidgetItem(
-                    [
-                        "",
-                        remote.name,
-                        "Dossier" if remote.is_directory else "Amiibo",
-                        "" if remote.is_directory else self._format_size(remote.size),
-                    ]
-                )
-                tree_item.setData(0, Qt.ItemDataRole.UserRole, remote.relative_path)
-                icon = self.style().standardIcon(
+
+    def _set_checkbox_widget(
+        self, tree_item: QTreeWidgetItem, checkbox: QCheckBox
+    ) -> None:
+        checkbox_cell = QWidget()
+        checkbox_cell.setObjectName("selectionCell")
+        checkbox_layout = QHBoxLayout(checkbox_cell)
+        checkbox_layout.setContentsMargins(0, 0, 0, 0)
+        checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        checkbox_layout.addWidget(checkbox)
+        self.tree.setItemWidget(tree_item, 0, checkbox_cell)
+
+    def _insert_remote_node(
+        self, remote: RemoteItem, checked_paths: set[str] | None = None
+    ) -> QTreeWidgetItem:
+        existing = self._tree_nodes.get(remote.relative_path)
+        if existing is not None:
+            existing.setText(1, remote.name)
+            existing.setText(2, "Folder" if remote.is_directory else "Amiibo")
+            existing.setText(3, "" if remote.is_directory else self._format_size(remote.size))
+            existing.setIcon(
+                1,
+                self.style().standardIcon(
                     QStyle.StandardPixmap.SP_DirIcon
                     if remote.is_directory
                     else QStyle.StandardPixmap.SP_FileIcon
-                )
-                tree_item.setIcon(1, icon)
-                if parent is None:
-                    self.tree.addTopLevelItem(tree_item)
-                else:
-                    parent.addChild(tree_item)
-                protected = remote.relative_path in self._protected_delete_paths
-                checkbox = QCheckBox()
-                checkbox.setChecked(remote.relative_path in checked_paths)
-                checkbox.setEnabled(not protected)
-                checkbox.setAccessibleName(
-                    f"{remote.name}, dossier protégé"
-                    if protected
-                    else f"Sélectionner {remote.name} pour suppression"
-                )
-                checkbox.setToolTip(
-                    "Ce dossier est protégé car il s’agit de fav, data, ou d’un parent qui les contient."
-                    if protected
-                    else (
-                        "Sélectionner ce dossier et son contenu pour suppression."
-                        if remote.is_directory
-                        else "Sélectionner ce fichier pour suppression."
-                    )
-                )
-                checkbox.toggled.connect(lambda _checked: self._update_action_state())
-                checkbox_cell = QWidget()
-                checkbox_cell.setObjectName("selectionCell")
-                checkbox_layout = QHBoxLayout(checkbox_cell)
-                checkbox_layout.setContentsMargins(0, 0, 0, 0)
-                checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                checkbox_layout.addWidget(checkbox)
-                self.tree.setItemWidget(tree_item, 0, checkbox_cell)
-                self._selection_checkboxes[remote.relative_path] = checkbox
-                nodes[remote.relative_path] = tree_item
-                folders += int(remote.is_directory)
-                files += int(not remote.is_directory)
-                if remote.relative_path == selected_path:
-                    self.tree.setCurrentItem(tree_item)
+                ),
+            )
+            return existing
+
+        relative = PurePosixPath(remote.relative_path)
+        parent_key = "" if relative.parent == PurePosixPath(".") else relative.parent.as_posix()
+        parent = self._tree_nodes.get(parent_key, self._tree_nodes[""])
+        tree_item = QTreeWidgetItem(
+            [
+                "",
+                remote.name,
+                "Folder" if remote.is_directory else "Amiibo",
+                "" if remote.is_directory else self._format_size(remote.size),
+            ]
+        )
+        tree_item.setData(0, Qt.ItemDataRole.UserRole, remote.relative_path)
+        tree_item.setIcon(
+            1,
+            self.style().standardIcon(
+                QStyle.StandardPixmap.SP_DirIcon
+                if remote.is_directory
+                else QStyle.StandardPixmap.SP_FileIcon
+            ),
+        )
+        sort_key = (not remote.is_directory, remote.name.casefold())
+        insert_at = parent.childCount()
+        for index in range(parent.childCount()):
+            sibling_path = str(parent.child(index).data(0, Qt.ItemDataRole.UserRole))
+            sibling = self._items.get(sibling_path)
+            if sibling and sort_key < (not sibling.is_directory, sibling.name.casefold()):
+                insert_at = index
+                break
+        parent.insertChild(insert_at, tree_item)
+
+        protected = remote.relative_path in self._protected_delete_paths
+        checkbox = QCheckBox()
+        checkbox.setChecked(bool(checked_paths and remote.relative_path in checked_paths))
+        checkbox.setEnabled(not protected)
+        checkbox.setAccessibleName(
+            f"{remote.name}, protected folder"
+            if protected
+            else f"Select {remote.name} for deletion"
+        )
+        checkbox.setToolTip(
+            "This folder is protected because it is fav, data, or one of their parents."
+            if protected
+            else (
+                "Select this folder and its contents for deletion."
+                if remote.is_directory
+                else "Select this file for deletion."
+            )
+        )
+        checkbox.toggled.connect(lambda _checked: self._update_action_state())
+        self._set_checkbox_widget(tree_item, checkbox)
+        self._selection_checkboxes[remote.relative_path] = checkbox
+        self._tree_nodes[remote.relative_path] = tree_item
+        return tree_item
+
+    @Slot(object)
+    def _apply_library_delta(self, delta: LibraryDelta) -> None:
+        selected_path = self._selected_path()
+        checked_paths = set(self._checked_delete_paths())
+        self.tree.blockSignals(True)
+        try:
+            for path in sorted(
+                delta.removed,
+                key=lambda value: len(PurePosixPath(value).parts),
+                reverse=True,
+            ):
+                tree_item = self._tree_nodes.pop(path, None)
+                self._selection_checkboxes.pop(path, None)
+                self._items.pop(path, None)
+                if tree_item is not None and tree_item.parent() is not None:
+                    tree_item.parent().removeChild(tree_item)
+
+            for remote in delta.upserted:
+                self._items[remote.relative_path] = remote
+            self._recompute_protected_paths()
+            for remote in sorted(
+                delta.upserted,
+                key=lambda item: (
+                    len(PurePosixPath(item.relative_path).parts),
+                    not item.is_directory,
+                    item.name.casefold(),
+                ),
+            ):
+                self._insert_remote_node(remote, checked_paths)
+
+            for path, checkbox in self._selection_checkboxes.items():
+                protected = path in self._protected_delete_paths
+                if protected:
+                    checkbox.setChecked(False)
+                checkbox.setEnabled(not protected and self._connected and not self._busy)
+
+            selected_item = self._tree_nodes.get(selected_path)
+            if selected_item is None:
+                selected_item = self._tree_nodes[""]
+            self.tree.setCurrentItem(selected_item)
         finally:
             self.tree.blockSignals(False)
 
-        self._tree_nodes = nodes
-
-        self.tree.expandToDepth(0)
-        self.count_label.setText(f"{files} amiibo(s) · {folders} dossier(s)")
-        self.empty_label.setVisible(not items)
-        self.tree.setVisible(bool(items))
-        self._set_library_root_active(not bool(self._selected_path()))
+        self._update_library_summary()
+        self._set_library_root_active(self._selected_path() == "")
         self._update_action_state()
+
+    def _update_library_summary(self) -> None:
+        folders = sum(item.is_directory for item in self._items.values())
+        files = len(self._items) - folders
+        self.count_label.setText(f"{files} amiibo(s) · {folders} folder(s)")
+        self.empty_label.setVisible(not self._items)
+        self.tree.setVisible(True)
 
     @Slot(bool, str)
     def _set_busy(self, busy: bool, label: str) -> None:
@@ -989,9 +1344,11 @@ class MainWindow(QMainWindow):
             self.activity_label.setText(label)
             self.progress_bar.setRange(0, 0)
             self.progress_bar.show()
+            self.taskbar_progress.indeterminate()
         elif self.progress_bar.maximum() == 0:
             self.progress_bar.hide()
-            self.activity_label.setText("Prêt")
+            self.activity_label.setText("Ready")
+            self.taskbar_progress.clear()
         self._update_action_state()
 
     @Slot(int, int, str, str)
@@ -999,87 +1356,138 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, total or 1)
         self.progress_bar.setValue(current)
         self.progress_bar.show()
+        self.taskbar_progress.set_value(current, total)
         self.activity_label.setText(f"{action.capitalize()} · {PurePosixPath(path).name}")
         self.log.append(f"{current}/{total}  {action:<10}  {path}")
+        self._scroll_log_to_end()
+
+    @Slot(str)
+    def _on_operation_detail(self, message: str) -> None:
+        compact_message = message if len(message) <= 96 else message[:93] + "…"
+        self.activity_label.setText(compact_message)
+        self.activity_label.setToolTip(message)
+        self.log.append(message)
+        self._scroll_log_to_end()
+
+    def _scroll_log_to_end(self) -> None:
         scrollbar = self.log.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
-    @Slot(str, object)
-    def _on_operation_done(self, command: str, result: Any) -> None:
+    @Slot(str, object, float)
+    def _on_operation_done(self, command: str, result: Any, elapsed: float) -> None:
         messages = {
-            "refresh": "Bibliothèque actualisée",
-            "mkdir": "Dossier créé",
-            "rename": "Élément renommé",
+            "refresh": "Library refreshed",
+            "mkdir": "Folder created",
+            "rename": "Item renamed",
         }
         if command == "delete" and isinstance(result, DeleteReport):
             messages[command] = (
-                f"{result.removed_files} fichier(s) et "
-                f"{result.removed_folders} dossier(s) supprimé(s)"
+                f"{result.removed_files} file(s) and "
+                f"{result.removed_folders} folder(s) deleted"
             )
             self.log.append("")
-            self.log.append("Résultat de la suppression")
-            self.log.append(f"Éléments retirés : {result.total}")
-            self.log.append(f"Fichiers : {result.removed_files}")
-            self.log.append(f"Dossiers : {result.removed_folders}")
-            self.log.append("Cibles traitées :")
+            self.log.append("Deletion result")
+            self.log.append(f"Items removed: {result.total}")
+            self.log.append(f"Files: {result.removed_files}")
+            self.log.append(f"Folders: {result.removed_folders}")
+            self.log.append("Processed targets:")
             for path in result.requested:
                 self.log.append(f"  • {path}")
         elif command == "upload":
             messages[command] = (
-                f"{result.created} ajouté(s), {result.overwritten} remplacé(s), "
-                f"{result.identical} déjà présent(s)"
+                f"{result.created} added, {result.overwritten} overwritten, "
+                f"{result.identical} already present"
             )
             self.log.append("")
-            self.log.append("Résumé de l’envoi")
-            self.log.append(f"Nouveaux fichiers : {result.created}")
-            self.log.append(f"Fichiers remplacés : {result.overwritten}")
-            self.log.append(f"Fichiers identiques ignorés : {result.identical}")
-            self.log.append(f"Dossiers créés : {result.folders_created}")
+            self.log.append("Upload summary")
+            self.log.append(f"New files: {result.created}")
+            self.log.append(f"Files overwritten: {result.overwritten}")
+            self.log.append(f"Identical files skipped: {result.identical}")
+            self.log.append(f"Folders created: {result.folders_created}")
         elif command == "import" and isinstance(result, ImportReport):
             sync = result.synchronization
             extraction = result.extraction
             messages[command] = (
-                f"Import terminé : {sync.created} ajouté(s), "
-                f"{sync.overwritten} remplacé(s), {sync.identical} identique(s)"
+                f"Import complete: {sync.created} added, "
+                f"{sync.overwritten} overwritten, {sync.identical} identical"
             )
             self.log.append("")
-            self.log.append("Résumé de la préparation du ZIP")
-            self.log.append(f"Fichiers extraits : {extraction.extracted}")
-            self.log.append(f"Doublons remplacés : {extraction.overwritten}")
-            self.log.append(f"Doublons identiques ignorés : {extraction.identical}")
-            self.log.append(f"Entrées ignorées : {extraction.skipped}")
+            self.log.append("ZIP preparation summary")
+            self.log.append(f"Files extracted: {extraction.extracted}")
+            self.log.append(f"Duplicates overwritten: {extraction.overwritten}")
+            self.log.append(f"Identical duplicates skipped: {extraction.identical}")
+            self.log.append(f"Entries skipped: {extraction.skipped}")
             self.log.append("")
-            self.log.append("Résumé de la synchronisation BLE")
-            self.log.append(f"Nouveaux fichiers : {sync.created}")
-            self.log.append(f"Fichiers remplacés : {sync.overwritten}")
-            self.log.append(f"Fichiers identiques ignorés : {sync.identical}")
-            self.log.append(f"Dossiers créés : {sync.folders_created}")
-            self.log.append("Données temporaires supprimées automatiquement.")
-        message = messages.get(command, "Opération terminée")
-        self.activity_label.setText(message)
+            self.log.append("BLE synchronization summary")
+            self.log.append(f"New files: {sync.created}")
+            self.log.append(f"Files overwritten: {sync.overwritten}")
+            self.log.append(f"Identical files skipped: {sync.identical}")
+            self.log.append(f"Folders created: {sync.folders_created}")
+            self.log.append("Temporary data deleted automatically.")
+        message = messages.get(command, "Operation complete")
+        duration = self._format_duration(elapsed)
+        self.activity_label.setText(f"{message} · {duration}")
+        self.activity_label.setToolTip("")
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100)
         self.progress_bar.show()
+        self.taskbar_progress.set_value(100, 100)
         self.log.append(message)
+        self.log.append(f"Total duration: {duration}")
+        if (
+            command == "import"
+            or (
+                command == "delete"
+                and isinstance(result, DeleteReport)
+                and len(result.requested) > 1
+            )
+            or (
+                command == "upload"
+                and isinstance(result, TransferReport)
+                and result.created + result.overwritten + result.identical > 1
+            )
+        ):
+            self._notify_completion("Allmiibo Manager", message)
         QTimer.singleShot(5000, self._settle_activity)
 
     @Slot(str, str)
     def _on_operation_error(self, message: str, details: str) -> None:
-        self.activity_label.setText("Échec de l’opération")
+        self.activity_label.setText("Operation failed")
+        self.activity_label.setToolTip(message)
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.hide()
+        self.taskbar_progress.error()
         self.log.append(details)
         QMessageBox.critical(
             self,
-            "Impossible de terminer l’opération",
+            "Unable to complete the operation",
             message
-            + "\n\nActualisez la bibliothèque avant de réessayer. "
-            "Les détails techniques restent disponibles dans le journal.",
+            + "\n\nRefresh the library before trying again. "
+            "Technical details remain available in the log.",
         )
+        QTimer.singleShot(5000, self._settle_activity)
 
     def _settle_activity(self) -> None:
         if not self._busy:
             self.progress_bar.hide()
-            self.activity_label.setText("Prêt")
+            self.activity_label.setText("Ready")
+            self.taskbar_progress.clear()
+
+    def _notify_completion(self, title: str, message: str) -> None:
+        QApplication.beep()
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        if self._notification_tray is None:
+            self._notification_tray = QSystemTrayIcon(self.windowIcon(), self)
+            self._notification_tray.setToolTip("Allmiibo Manager")
+        self._notification_tray.show()
+        self._notification_tray.showMessage(
+            title,
+            message,
+            QSystemTrayIcon.MessageIcon.Information,
+            4000,
+        )
+        QTimer.singleShot(6000, self._notification_tray.hide)
 
     def _selected_path(self) -> str:
         item = self.tree.currentItem()
@@ -1133,7 +1541,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _select_library_root(self) -> None:
         self.tree.clearSelection()
-        self.tree.setCurrentItem(None)
+        self.tree.setCurrentItem(self._tree_nodes.get(""))
         self._set_library_root_active(True)
         self._update_action_state()
 
@@ -1156,9 +1564,9 @@ class MainWindow(QMainWindow):
     def _choose_archive(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(
             self,
-            "Choisir le ZIP téléchargé depuis Google Drive",
+            "Choose the ZIP downloaded from Google Drive",
             "",
-            "Archives ZIP (*.zip)",
+            "ZIP archives (*.zip)",
         )
         if filename:
             self._confirm_import(Path(filename))
@@ -1166,29 +1574,29 @@ class MainWindow(QMainWindow):
     def _confirm_import(self, archive: Path) -> None:
         answer = QMessageBox.question(
             self,
-            "Mettre à jour toute la bibliothèque",
-            f"Importer {archive.name} ?\n\n"
-            "Les nouveaux amiibos seront ajoutés, les fichiers différents remplacés "
-            "et les fichiers identiques ignorés. Vos autres fichiers seront conservés.",
+            "Update the entire library",
+            f"Import {archive.name}?\n\n"
+            "New amiibos will be added, different files overwritten, and identical "
+            "files skipped. Your other files will be preserved.",
             QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok,
             QMessageBox.StandardButton.Ok,
         )
         if answer == QMessageBox.StandardButton.Ok:
             self.log.clear()
             self.log.append("Import ZIP")
-            self.log.append(f"Archive : {archive.name}")
+            self.log.append(f"Archive: {archive.name}")
             self.log.append(
-                "Règle : ajouter les nouveaux fichiers, remplacer les fichiers "
-                "différents et ignorer les fichiers identiques."
+                "Rule: add new files, overwrite different files, and skip "
+                "identical files."
             )
-            self.log.append("Les fichiers présents uniquement sur l’appareil sont conservés.")
-            self.log.append("Préparation dans le stockage temporaire Windows…")
+            self.log.append("Files found only on the device are preserved.")
+            self.log.append("Preparing files in Windows temporary storage…")
             self.controller.submit("import", archive)
 
     @Slot()
     def _choose_files(self) -> None:
         filenames, _ = QFileDialog.getOpenFileNames(
-            self, "Ajouter des amiibos", "", "Fichiers amiibo (*.bin)"
+            self, "Add amiibos", "", "Amiibo files (*.bin)"
         )
         if filenames:
             self._upload_paths([Path(filename) for filename in filenames])
@@ -1196,7 +1604,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _choose_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(
-            self, "Ajouter un dossier d’amiibos"
+            self, "Add an amiibo folder"
         )
         if folder:
             self._upload_paths([Path(folder)])
@@ -1206,8 +1614,8 @@ class MainWindow(QMainWindow):
         if not self._connected or self._busy:
             QMessageBox.information(
                 self,
-                "Allmiibo indisponible",
-                "Attendez la connexion ou la fin de l’opération en cours.",
+                "Allmiibo unavailable",
+                "Wait for the connection or the current operation to finish.",
             )
             return
         archives = [path for path in paths if path.suffix.lower() == ".zip"]
@@ -1215,8 +1623,8 @@ class MainWindow(QMainWindow):
             if len(paths) != 1:
                 QMessageBox.warning(
                     self,
-                    "Sélection ambiguë",
-                    "Déposez une seule archive ZIP à la fois.",
+                    "Ambiguous selection",
+                    "Drop only one ZIP archive at a time.",
                 )
                 return
             self._confirm_import(archives[0])
@@ -1225,21 +1633,27 @@ class MainWindow(QMainWindow):
 
     def _upload_paths(self, paths: list[Path]) -> None:
         target = self._target_directory()
-        destination = "Bibliothèque"
+        destination = "Library"
         if target:
             destination += " › " + target.replace("/", " › ")
         self.log.clear()
-        self.activity_label.setText(f"Préparation de l’envoi vers {destination}…")
-        self.log.append(f"Destination : {destination}")
+        self.activity_label.setText(f"Preparing upload to {destination}…")
+        self.log.append(f"Destination: {destination}")
         self.controller.submit("upload", (paths, target))
 
     @Slot()
     def _create_folder(self) -> None:
         name, accepted = QInputDialog.getText(
-            self, "Nouveau dossier", "Nom du dossier :"
+            self, "New folder", "Folder name:"
         )
         if accepted and name.strip():
-            self.controller.submit("mkdir", (self._target_directory(), name))
+            target = self._target_directory()
+            destination = "Library" if not target else target
+            self.log.clear()
+            self.log.append("Folder creation")
+            self.log.append(f"Parent: {destination}")
+            self.log.append(f"Requested name: {name.strip()}")
+            self.controller.submit("mkdir", (target, name))
 
     @Slot()
     def _rename(self) -> None:
@@ -1250,16 +1664,20 @@ class MainWindow(QMainWindow):
         is_bin = current.lower().endswith(".bin")
         editable_name = current[:-4] if is_bin else current
         prompt = (
-            "Nom du fichier (extension .bin conservée) :"
+            "File name (.bin extension preserved):"
             if is_bin
-            else "Nouveau nom :"
+            else "New name:"
         )
         name, accepted = QInputDialog.getText(
-            self, "Renommer", prompt, text=editable_name
+            self, "Rename", prompt, text=editable_name
         )
         if accepted and name.strip():
             requested_name = name.strip() + ".bin" if is_bin else name.strip()
             if requested_name != current:
+                self.log.clear()
+                self.log.append("Rename requested")
+                self.log.append(f"Source: {relative}")
+                self.log.append(f"New name: {requested_name}")
                 self.controller.submit("rename", (relative, requested_name))
 
     @Slot()
@@ -1273,53 +1691,59 @@ class MainWindow(QMainWindow):
         if blocked:
             QMessageBox.information(
                 self,
-                "Dossier protégé",
-                "Les dossiers fav et data, ainsi que les dossiers qui les contiennent, "
-                "ne peuvent jamais être supprimés.",
+                "Protected folder",
+                "The fav and data folders, and any folder containing them, "
+                "can never be deleted.",
             )
             return
 
         if len(targets) == 1:
             remote = self._items[targets[0]]
             kind = (
-                "le dossier et tout son contenu"
+                "the folder and all its contents"
                 if remote.is_directory
-                else "le fichier"
+                else "the file"
             )
-            question = f"Supprimer {kind} « {remote.name} » ?"
+            question = f'Delete {kind} "{remote.name}"?'
         else:
             names = [self._items[path].name for path in targets]
             preview = "\n".join(f"• {name}" for name in names[:6])
             if len(names) > 6:
-                preview += f"\n• … et {len(names) - 6} autre(s)"
+                preview += f"\n• … and {len(names) - 6} more"
             question = (
-                f"Supprimer les {len(targets)} éléments cochés ?\n"
-                "Le contenu des dossiers sélectionnés sera également supprimé."
+                f"Delete the {len(targets)} selected items?\n"
+                "The contents of selected folders will also be deleted."
                 f"\n\n{preview}"
             )
         answer = QMessageBox.warning(
             self,
-            "Confirmer la suppression",
-            question + "\n\nCette action est définitive.",
+            "Confirm deletion",
+            question + "\n\nThis action cannot be undone.",
             QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Yes,
             QMessageBox.StandardButton.Cancel,
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.log.clear()
-            self.log.append("Suppression demandée")
-            self.log.append(f"Cibles sélectionnées : {len(targets)}")
+            self.log.append("Deletion requested")
+            self.log.append(f"Selected targets: {len(targets)}")
             for path in targets:
                 remote = self._items[path]
-                kind = "Dossier" if remote.is_directory else "Fichier"
+                kind = "Folder" if remote.is_directory else "File"
                 self.log.append(f"  • [{kind}] {path}")
             if any(self._items[path].is_directory for path in targets):
                 self.log.append(
-                    "Les dossiers sélectionnés incluent automatiquement tout leur contenu."
+                    "Selected folders automatically include all their contents."
                 )
             self.controller.submit("delete", targets)
 
     @Slot()
     def _refresh(self) -> None:
+        self.log.clear()
+        self.log.append("Full library refresh")
+        self.log.append(
+            "Every folder will be scanned over BLE. Subsequent actions will use "
+            "the updated in-memory index."
+        )
         self.controller.submit("refresh")
 
     @Slot(QPoint)
@@ -1330,10 +1754,10 @@ class MainWindow(QMainWindow):
         self.tree.clearSelection()
         self.tree.setCurrentItem(item)
         menu = QMenu(self)
-        add_action = menu.addAction("Ajouter ici…")
-        new_folder_action = menu.addAction("Nouveau dossier…")
-        rename_action = menu.addAction("Renommer…")
-        delete_action = menu.addAction("Supprimer…")
+        add_action = menu.addAction("Add here…")
+        new_folder_action = menu.addAction("New folder…")
+        rename_action = menu.addAction("Rename…")
+        delete_action = menu.addAction("Delete…")
         if item is None:
             rename_action.setEnabled(False)
             delete_action.setEnabled(False)
@@ -1347,7 +1771,9 @@ class MainWindow(QMainWindow):
                     and is_protected_directory_path(remote.relative_path)
                 )
             )
-            delete_action.setEnabled(relative not in self._protected_delete_paths)
+            delete_action.setEnabled(
+                bool(relative) and relative not in self._protected_delete_paths
+            )
         action = menu.exec(self.tree.viewport().mapToGlobal(point))
         if action == add_action:
             self._choose_files()
@@ -1384,7 +1810,7 @@ class MainWindow(QMainWindow):
             action.setEnabled(enabled)
         self.rename_action.setEnabled(enabled and selected_renameable)
         self.delete_action.setText(
-            f"Supprimer ({checked_count})" if checked_count else "Supprimer"
+            f"Delete ({checked_count})" if checked_count else "Delete"
         )
         self.delete_action.setEnabled(
             enabled and (checked_count > 0 or selected_deletable)
@@ -1395,7 +1821,7 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _toggle_log(self, visible: bool) -> None:
         self.log.setVisible(visible)
-        self.log_toggle.setText("Masquer" if visible else "Détails")
+        self.log_toggle.setText("Hide" if visible else "Details")
 
     @Slot()
     def _open_library_source(self) -> None:
@@ -1412,11 +1838,22 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _format_size(size: int) -> str:
         value = float(size)
-        for unit in ("o", "Kio", "Mio", "Gio"):
-            if value < 1024 or unit == "Gio":
-                return f"{value:.0f} {unit}" if unit == "o" else f"{value:.1f} {unit}"
+        for unit in ("B", "KiB", "MiB", "GiB"):
+            if value < 1024 or unit == "GiB":
+                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
             value /= 1024
-        return f"{size} o"
+        return f"{size} B"
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        total = max(0, round(seconds))
+        if total < 60:
+            return f"{total} s"
+        minutes, remaining = divmod(total, 60)
+        if minutes < 60:
+            return f"{minutes} min {remaining:02d} s"
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours} h {minutes:02d} min"
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         paths = LibraryTree._local_paths(event)
@@ -1436,8 +1873,8 @@ class MainWindow(QMainWindow):
         if self._busy and not connection_page_visible:
             QMessageBox.information(
                 self,
-                "Opération en cours",
-                "Attendez la fin de l’opération avant de fermer l’application.",
+                "Operation in progress",
+                "Wait for the operation to finish before closing the application.",
             )
             event.ignore()
             return
@@ -1446,10 +1883,11 @@ class MainWindow(QMainWindow):
             event.ignore()
             QMessageBox.warning(
                 self,
-                "Déconnexion en cours",
-                "La connexion Bluetooth se ferme. Réessayez dans quelques secondes.",
+                "Disconnecting",
+                "The Bluetooth connection is closing. Try again in a few seconds.",
             )
             return
+        self.taskbar_progress.close()
         event.accept()
 
 

@@ -1,12 +1,12 @@
-# Ressources visuelles
+# Visual assets
 
-`amiibo-app-icon-source.png` est utilisé dans la fenêtre et embarqué dans
-l’application. `amiibo-app-icon.ico` est sa déclinaison multi-résolution pour
-l’exécutable Windows.
+`amiibo-app-icon-source.png` is used by the window and bundled with the
+application. `amiibo-app-icon.ico` is its multi-resolution Windows executable
+variant.
 
-Source de l’image :
-<https://www.vhv.rs/viewpic/hhohwJT_81kib-691x600-threadworthy-amiibo-logo-png-transparent-png/>.
+The square source image was supplied by the project maintainer. The ICO file
+contains Windows sizes from 16 to 256 pixels.
 
-Le logo et la marque amiibo appartiennent à Nintendo. Cette ressource est
-utilisée uniquement pour identifier la fonction de l’application ; elle ne
-constitue pas une affiliation ou une approbation officielle.
+The amiibo logo and trademark belong to Nintendo. This asset is used only to
+identify the application's purpose; it does not imply official affiliation or
+endorsement.

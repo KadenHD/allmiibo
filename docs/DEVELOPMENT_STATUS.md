@@ -1,67 +1,81 @@
-# Suivi du développement
+# Development status
 
-Dernière mise à jour : 2026-09-14
+Last updated: 2026-09-14
 
-## Cible actuelle
+## Current target
 
-Transformer l’ancienne interface orientée préparation locale en gestionnaire de
-bibliothèque connecté en permanence à l’Allmiibo.
+Release the completed always-connected Allmiibo library manager as v2.0.0.
 
-## Terminé avant cette refonte
+## Completed before this redesign
 
-- Protocole BLE Pixl.js : lecture/écriture, dossiers, suppression et renommage.
-- Synchronisation sûre : identique ignoré, différent remplacé, nouveau ajouté.
-- Validation des limites de chemins Allmiibo avant transfert.
-- Build Windows PyInstaller et workflow GitHub Release.
+- Pixl.js BLE protocol: file reads/writes, folders, deletion, and renaming.
+- Safe synchronization: skip identical files, overwrite different files, and
+  add new files.
+- Allmiibo path-limit validation before transfer.
+- Windows PyInstaller build and GitHub Release workflow.
 
-## Refonte en cours
+## Redesign progress
 
-- [x] Définir le nouveau workflow utilisateur.
-- [x] Ajouter une couche métier pour une connexion persistante.
-- [x] Prévoir le stockage temporaire Windows et son nettoyage automatique.
-- [x] Remplacer l’interface par l’écran connexion puis l’explorateur distant.
-- [x] Ajouter les actions fichier/dossier et le glisser-déposer.
-- [x] Ajouter l’import ZIP guidé avec lien vers le dossier Google Drive.
-- [x] Conserver les noms du Drive sans alias ni raccourcissement automatique.
-- [x] Ajouter les liens DFU/releases et l’exigence Pixl.js 2.16+ pour Kirby Air Riders.
-- [x] Ajouter les états de connexion, erreurs et progression.
-- [x] Ajouter la reconnexion automatique avec temporisation progressive.
-- [x] Rendre la destination du glisser-déposer explicite et déterministe.
-- [x] Afficher l’espace disponible après chaque actualisation.
-- [x] Ajouter la sélection par cases et la suppression groupée d’éléments.
-- [x] Corriger le clic réel de la case globale et isoler l’indentation dans Nom.
-- [x] Étendre les cases de suppression aux fichiers `.bin`.
-- [x] Faire du clic dans le vide un retour explicite à la racine Bibliothèque.
-- [x] Refuser les dossiers frères de même nom et verrouiller l’extension `.bin`.
-- [x] Remplacer le débordement natif par un bouton `Plus` inline responsive.
-- [x] Détailler les bilans de suppression et d’import ZIP dans le journal.
-- [x] Appliquer une icône amiibo à la fenêtre et au package Windows.
-- [x] Présenter la connexion initiale comme l’analyse de l’arborescence existante.
-- [x] Permettre la fermeture pendant la recherche BLE et annuler celle-ci proprement.
-- [x] Protéger `fav`, `data` et leurs parents contre toute suppression.
-- [x] Compléter les tests métier et les tests d’interface.
-- [x] Reconstruire et vérifier l’exécutable Windows.
-- [x] Mettre à jour README.md et DESIGN.md.
+- [x] Define the new user workflow.
+- [x] Add a business layer for a persistent connection.
+- [x] Use Windows temporary storage and clean it automatically.
+- [x] Replace the interface with a connection screen and remote explorer.
+- [x] Add file/folder actions and drag-and-drop.
+- [x] Add guided ZIP import with a link to the Google Drive folder.
+- [x] Preserve Drive names without aliases or automatic shortening.
+- [x] Add DFU/release links and the Pixl.js 2.16+ requirement for Kirby Air Riders.
+- [x] Add connection, error, and progress states.
+- [x] Add automatic reconnection with progressive delays.
+- [x] Make the drag-and-drop destination explicit and deterministic.
+- [x] Display available storage after each refresh.
+- [x] Add checkbox selection and grouped item deletion.
+- [x] Fix global-checkbox interaction and keep indentation in the Name column.
+- [x] Extend deletion checkboxes to `.bin` files.
+- [x] Make an empty-space click return explicitly to the Library root.
+- [x] Reject duplicate sibling folder names and lock the `.bin` extension.
+- [x] Replace native overflow with a responsive inline `More` button.
+- [x] Add detailed deletion and ZIP import summaries to the log.
+- [x] Apply an amiibo icon to the window and Windows package.
+- [x] Present initial connection as a scan of the existing folder structure.
+- [x] Allow closing during BLE scanning and cancel it cleanly.
+- [x] Maintain an in-memory folder index after every mutation.
+- [x] Remove duplicate BLE scans after creation, rename, deletion, and upload.
+- [x] Reuse the index during ZIP import instead of scanning the device again.
+- [x] Break long operations into stages with a heartbeat every five seconds.
+- [x] Display a selectable `amiibo` root as an upload destination.
+- [x] Update the folder tree by delta instead of rebuilding it after mutations.
+- [x] Add final duration, Windows taskbar progress, and batch notifications.
+- [x] Space action icons and make the `More` arrow reversible.
+- [x] Use a dark green ZIP import action and replace the icon with the supplied asset.
+- [x] Protect `fav`, `data`, and their parents from deletion.
+- [x] Complete business-logic and interface tests.
+- [x] Rebuild and verify the Windows executable.
+- [x] Update README.md and DESIGN.md.
+- [x] Convert every tracked code, UI, test, comment, and documentation string to English.
+- [x] Prepare v2.0.0 release notes and release metadata.
 
-## État des validations
+## Validation status
 
-- 38 tests unitaires réussis, dont les conflits de dossiers, le verrouillage de
-  `.bin`, le retour à la racine, le menu `Plus`, la case globale et les cases
-  protégées Qt, ainsi que l’annulation immédiate d’une recherche BLE active.
-- Aperçus Qt desktop 1080×720 et compact 760×560 contrôlés avec le nouveau
-  bandeau Drive/firmware.
-- Détecteur Impeccable : aucune anomalie mécanique signalée.
-- Aperçu natif de la sélection multiple et des dossiers protégés contrôlé.
-- Build PyInstaller réussi avec PySide6 6.8.3.
-- Auto-test du binaire : code de sortie `0`.
-- Binaire : 42 675 251 octets ; SHA-256
-  `48E29BDD86C223F31C38D54ACD7B31EC7CCAFE662F505433EE13457DB6320DBB`.
-- Test matériel final toujours requis pour confirmer la durée de vie de la
-  connexion sur un vrai Allmiibo.
+- 46 unit tests pass, including the repository English-only guard, folder
+  conflicts, `.bin` extension locking,
+  root selection, the `More` menu, global selection, protected Qt checkboxes,
+  immediate cancellation of an active BLE scan, and the absence of new BLE
+  scans after ordinary mutations.
+- English Qt previews at 1080×720 and 760×560 were reviewed for the library and
+  connection screens.
+- The Impeccable detector reported no mechanical issue.
+- Native previews of multi-selection and protected folders were reviewed.
+- PyInstaller build succeeded with PySide6 6.8.3.
+- Executable self-test exits with code `0`.
+- The local v2.0.0 release candidate is 42,732,171 bytes
+  with SHA-256
+  `20D816F7670D756AC1DAB6302E8C83ED6F0CDA8B29707C8A56A41E430459B636`.
+- Final hardware testing is still required to confirm connection lifetime on a
+  real Allmiibo.
 
-## Validation attendue
+## Expected validation
 
-- Tests unitaires avec un client VFS simulé.
-- Smoke-test PySide6 hors écran.
-- Build `.exe` avec PySide6 6.8.3 et self-test du binaire.
-- Test matériel final à faire avec un Allmiibo réel connecté.
+- Unit tests with a simulated VFS client.
+- Offscreen PySide6 smoke test.
+- `.exe` build with PySide6 6.8.3 and executable self-test.
+- Final hardware test with a connected physical Allmiibo.

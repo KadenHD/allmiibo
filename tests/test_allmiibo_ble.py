@@ -51,11 +51,13 @@ class FakeVfs:
         self.directories = {"E:/", "E:/amiibo"}
         self.files: dict[str, bytes] = {}
         self.write_count = 0
+        self.read_directory_count = 0
 
     async def get_drives(self) -> list[Drive]:
         return [Drive(0, "E", "External Flash", 2_000_000, 1_000_000)]
 
     async def read_directory(self, path: str) -> list[DirectoryEntry]:
+        self.read_directory_count += 1
         prefix = path.rstrip("/") + "/"
         entries: dict[str, DirectoryEntry] = {}
         for directory in self.directories:
@@ -199,7 +201,7 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual([event[:2] for event in events], [(1, 2), (2, 2)])
             self.assertEqual(
-                {event[2] for event in events}, {"envoyé", "identique"}
+                {event[2] for event in events}, {"uploaded", "identical"}
             )
 
 
@@ -209,7 +211,7 @@ class PathTests(unittest.TestCase):
             join_device_path("E:/amiibo", PurePosixPath("Zelda/Link.bin")),
             "E:/amiibo/Zelda/Link.bin",
         )
-        validate_device_path("E:/amiibo/Épona.bin")
+        validate_device_path("E:/amiibo/Epona.bin")
 
         with self.assertRaises(ValueError):
             validate_device_path("E:/amiibo/../settings.bin")

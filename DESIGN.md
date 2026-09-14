@@ -1,6 +1,6 @@
 ---
 name: Allmiibo Manager
-description: Un explorateur Windows calme qui place la bibliothèque de l'appareil au centre.
+description: A calm Windows explorer that keeps the device library at the center.
 colors:
   graphite-canvas: "#0f1318"
   graphite-surface: "#151a20"
@@ -11,9 +11,9 @@ colors:
   graphite-border: "#34404b"
   text-primary: "#edf2f6"
   text-muted: "#99a4af"
-  coral-import: "#e9785b"
-  coral-import-hover: "#f18a6e"
-  coral-ink: "#1a0c08"
+  forest-import: "#176548"
+  forest-import-hover: "#1f7a59"
+  import-text: "#ffffff"
   mint-status: "#58d6a5"
   mint-connected-surface: "#18392f"
   mint-connected-text: "#79e1b8"
@@ -55,14 +55,14 @@ spacing:
   page-x: "24px"
 components:
   button-import:
-    backgroundColor: "{colors.coral-import}"
-    textColor: "{colors.coral-ink}"
+    backgroundColor: "{colors.forest-import}"
+    textColor: "{colors.import-text}"
     typography: "{typography.label}"
     rounded: "{rounded.control}"
     padding: "8px 11px"
   button-import-hover:
-    backgroundColor: "{colors.coral-import-hover}"
-    textColor: "{colors.coral-ink}"
+    backgroundColor: "{colors.forest-import-hover}"
+    textColor: "{colors.import-text}"
     rounded: "{rounded.control}"
     padding: "8px 11px"
   button-secondary:
@@ -98,147 +98,158 @@ components:
 
 ## Overview
 
-**Creative North Star: "La Console Silencieuse"**
+**Creative North Star: "The Quiet Console"**
 
-Allmiibo Manager est un explorateur d'appareil, pas un tableau de bord. L'appareil est l'espace de travail et les fichiers locaux ne sont que des entrées : l'arborescence distante garde donc la priorité visuelle, tandis que la connexion, les commandes et l'activité restent lisibles sans la concurrencer.
+Allmiibo Manager is a device explorer, not a dashboard. The device is the
+workspace and local files are inputs. The remote folder tree therefore owns the
+visual hierarchy, while connection state, commands, and activity remain clear
+without competing with it.
 
-Le monde visuel est une utilité graphite calme, proche de la densité de l'Explorateur Windows. La menthe confirme la présence de l'appareil, le corail porte l'unique action d'import globale et le bleu guide la recherche ou l'aide. La narration reste stable : connecter, voir, modifier avec précision, puis confirmer.
+The visual world is a calm graphite utility with the density of Windows File
+Explorer. Mint confirms device presence, forest green carries the single global
+import action, and blue guides scanning or help. The stable story is: connect,
+inspect, modify precisely, and confirm.
 
-**Key Characteristics:**
+**Key characteristics:**
 
-- L'appareil est toujours présenté comme la source de vérité.
-- Les contrôles sont natifs, directs et compacts ; la zone de fichiers respire davantage.
-- Une seule action corail domine la barre de commandes.
-- Les états techniques sont traduits en confirmations ou instructions lisibles.
-- L'illustration Bluetooth est vectorielle et discrètement animée pendant la recherche.
+- The device is always presented as the source of truth.
+- Controls are native, direct, and compact; the file area gets more space.
+- One forest-green action leads the command bar.
+- Technical states become clear confirmations or recovery instructions.
+- The Bluetooth illustration is vector-based and subtly animated while scanning.
 
 ## Colors
 
-La palette oppose un socle graphite peu saturé à trois accents strictement sémantiques : corail pour l'import, menthe pour la connexion ou la réussite, bleu pour la recherche et l'assistance.
+The palette combines a low-saturation graphite foundation with three strict
+semantic accents: forest green for import, mint for connection or success, and
+blue for scanning and guidance.
 
 ### Primary
 
-- **Corail d'import** (`coral-import`) : identifie exclusivement l'import ZIP et la relance principale sur l'écran de connexion.
-- **Corail actif** (`coral-import-hover`) : confirme le survol de cette action prioritaire sans changer son sens.
+- **Import forest** (`forest-import`) identifies ZIP import and the primary retry.
+- **Active forest** (`forest-import-hover`) marks hover without changing meaning.
 
 ### Secondary
 
-- **Menthe de statut** (`mint-status`) : anime la présence de l'appareil et remplit la progression.
-- **Menthe connectée** (`mint-connected-surface`, `mint-connected-text`) : compose le badge de connexion positive.
+- **Status mint** (`mint-status`) shows device presence and fills progress.
+- **Connected mint** (`mint-connected-surface`, `mint-connected-text`) builds the
+  positive connection chip.
+- **Search blue** (`blue-search`) carries the Bluetooth scanning signal.
+- **Link blue** (`blue-link`) distinguishes help, downloads, and expandable details.
+- **Guide blue** (`blue-guide`) forms the Drive and firmware information banner.
 
-### Tertiary
+### Neutrals
 
-- **Bleu de recherche** (`blue-search`) : porte le signal de recherche Bluetooth.
-- **Bleu de lien** (`blue-link`) : distingue l'aide, le téléchargement et les détails repliables.
-- **Bleu de guide** (`blue-guide`) : forme le bandeau d’accès au Drive et aux ressources firmware.
+- Graphite canvas and surfaces create hierarchy without decorative shadows.
+- Graphite controls distinguish resting, hover, tree, and border states.
+- Primary and muted text tokens cover names, metadata, capacity, and subtitles.
 
-### Neutral
+### Named rules
 
-- **Graphite de toile** (`graphite-canvas`) : fond continu de l'application.
-- **Graphite de surface** (`graphite-surface`) : activités et conteneurs secondaires.
-- **Graphite élevé** (`graphite-raised`) : état de connexion neutre et corps de l'illustration.
-- **Graphite de contrôle** (`graphite-control`, `graphite-control-hover`) : boutons utilitaires au repos et au survol.
-- **Graphite d'arborescence** (`graphite-tree`) : surface sombre qui maximise la lisibilité des fichiers.
-- **Bord graphite** (`graphite-border`) : séparation discrète des contrôles et menus.
-- **Texte principal** (`text-primary`) : noms, titres et commandes actives.
-- **Texte atténué** (`text-muted`) : sous-titres, capacité et métadonnées.
+**The Three Signals Rule.** Forest means import, mint means connected or
+successful, and blue means scan, learn, or navigate. Never exchange these roles.
 
-### Named Rules
-
-**The Three Signals Rule.** Le corail signifie importer, la menthe signifie connecté ou réussi, et le bleu signifie rechercher, apprendre ou naviguer ; ne jamais échanger ces rôles.
-
-**The One Coral Action Rule.** Une surface ne montre qu'une seule action corail prioritaire à la fois.
+**The One Forest Action Rule.** A surface shows only one priority forest action.
 
 ## Typography
 
-**Display Font:** Segoe UI Variable (avec Segoe UI en repli)
-**Body Font:** Segoe UI Variable (avec Segoe UI en repli)
+**Display font:** Segoe UI Variable with Segoe UI fallback
 
-**Character:** La pile système rend l'application immédiatement familière sous Windows et conserve une excellente lisibilité sans alourdir le paquet. La hiérarchie vient de la taille et du poids, jamais d'une seconde famille décorative.
+**Body font:** Segoe UI Variable with Segoe UI fallback
 
-### Hierarchy
+The Windows system stack keeps the application familiar and readable without
+increasing package size. Hierarchy comes from size and weight, never from a
+decorative second family.
 
-- **Display** (`display`) : titre central de l'état de connexion.
-- **Brand** (`brand`) : nom du produit dans l'en-tête persistant.
-- **Title** (`title`) : titre de la bibliothèque et repères de section.
-- **Body** (`body`) : commandes, lignes de fichiers, consignes et métadonnées courantes.
-- **Label** (`label`) : badge de connexion et actions qui réclament une emphase compacte.
+- **Display** is reserved for the central connection status.
+- **Brand** names the product in the persistent header.
+- **Title** marks the library and compact sections.
+- **Body** serves commands, file rows, instructions, and metadata.
+- **Label** emphasizes the connection chip and primary action.
 
-### Named Rules
-
-**The Native Voice Rule.** Utiliser la pile Segoe UI existante et réserver les graisses fortes aux titres, au badge et à l'action principale.
+**The Native Voice Rule.** Keep the Segoe UI stack and reserve strong weights
+for titles, the status chip, and the primary action.
 
 ## Layout
 
-La fenêtre démarre sur un canevas de bureau de 1080 × 720 px et reste utilisable jusqu'à 720 × 520 px. Une marge horizontale de `page-x` encadre l'ensemble ; les grands blocs suivent le rythme `content`, tandis que les surfaces internes utilisent `surface` ou `compact` selon leur densité.
+The default desktop canvas is 1080×720 px and remains usable down to 720×520 px.
+A `page-x` margin frames the window. Major blocks use the `content` rhythm, while
+internal surfaces use `surface` or `compact` spacing according to density.
 
-L'en-tête aligne l'identité à gauche et la capacité avec l'état de connexion à droite. Une fois connecté, le bandeau Drive et firmware, la barre de commandes, l'arborescence extensible et l'activité forment une colonne unique. L'arborescence absorbe toute hauteur disponible ; l'activité reste ancrée en bas.
+The header aligns identity on the left and capacity plus connection state on the
+right. After connection, the Drive/firmware guide, command bar, expandable tree,
+and activity area form one column. The tree consumes available height and the
+activity area stays anchored at the bottom.
 
-En largeur réduite, les libellés des commandes restent visibles aussi longtemps que possible. Un bouton **Plus**, placé immédiatement après la dernière commande visible, range les actions restantes dans un menu au lieu de transformer toute l'interface en rangée d'icônes ambiguës.
+At narrow widths, command labels remain visible as long as possible. A **More**
+button immediately follows the last visible command and holds the remaining
+actions instead of turning the whole interface into ambiguous icon-only controls.
 
-**The Tree Owns the Space Rule.** Après la connexion, toute expansion verticale revient d'abord à l'arborescence distante.
+**The Tree Owns the Space Rule.** After connection, vertical expansion belongs
+to the remote folder tree first.
 
-## Elevation & Depth
+## Elevation and shape
 
-Le système est plat par défaut. La profondeur vient de couches tonales — toile, surfaces, contrôles et arborescence — complétées par de fins contours sur l'explorateur et les commandes. Aucune ombre portée n'est définie dans l'interface actuelle.
+The interface is flat by default. Tonal canvas, surface, control, and tree layers
+create depth, supported by thin outlines around the explorer and commands. The
+current interface defines no drop shadows.
 
-**The Tonal Depth Rule.** Créer la hiérarchie par contraste de surface et bordure fine, jamais par une accumulation d'ombres.
+**The Tonal Depth Rule.** Create hierarchy with surface contrast and thin
+borders, never with accumulated shadows.
 
-## Shapes
-
-Les formes sont doucement techniques : contrôles compacts avec `control`, bandeaux avec `surface`, badge d'état en capsule courte avec `chip`, et grand panneau de bibliothèque avec `explorer`. Les rayons restent assez contenus pour préserver le caractère d'outil Windows ; seul le dessin de l'appareil adopte une silhouette plus arrondie.
+Shapes are softly technical: compact controls use `control`, banners use
+`surface`, the short status capsule uses `chip`, and the dominant library panel
+uses `explorer`. Radii stay restrained to preserve the Windows utility character.
 
 ## Components
 
 ### Buttons
 
-- **Shape:** contrôles compacts à coins modérément arrondis (`control`).
-- **Primary:** `button-import` réserve le corail et l'encre sombre à l'import ZIP ou à la relance principale.
-- **Hover / Focus:** `button-import-hover` intensifie le corail ; les commandes neutres passent de `graphite-control` à `graphite-control-hover` et conservent un contour lisible.
-- **Secondary / Link:** les commandes ordinaires restent graphite ; les actions d'aide sont sans fond ni bordure et utilisent `blue-link`.
-- **Disabled:** le contrôle reste visible mais recule fortement dans la hiérarchie jusqu'au retour d'une connexion ou à la fin de l'opération.
+- Primary import uses forest green and white text.
+- Neutral commands move from `graphite-control` to
+  `graphite-control-hover` while retaining a readable outline.
+- Help actions have no background or border and use `blue-link`.
+- Disabled controls remain visible but recede until connection or operation end.
 
-### Chips
+### Connection chip
 
-- **Style:** `connection-chip` porte l'attente ou la déconnexion ; `connection-chip-connected` associe un point d'état et le nom réel de l'appareil.
-- **State:** le changement de fond et de texte suffit ; ne pas ajouter un second badge pour la même connexion.
+The neutral chip communicates waiting or disconnection. The connected variant
+combines one status dot with the real device name; never add a duplicate badge.
 
-### Cards / Containers
+### Library tree
 
-- **Corner Style:** `surface` pour le guide et l'activité ; `explorer` pour la bibliothèque dominante.
-- **Background:** `guide-banner` oriente vers la mise à jour officielle ; `explorer-panel` contient l'arborescence distante.
-- **Shadow Strategy:** aucune ombre ; voir la règle de profondeur tonale.
-- **Border:** le panneau d'exploration reçoit une bordure graphite, l'activité s'en passe.
-- **Internal Padding:** les bandeaux emploient principalement `surface` sur l'axe vertical et `content` sur l'axe horizontal.
+The library is the signature component: dense rows, a compact selection column,
+then Name, Type, and Size. The **amiibo** root remains visible, selectable as a
+destination, and non-deletable. The header checkbox selects all deletable files
+and folders and reflects none, partial, or complete selection. `fav`, `data`, and
+their parents keep visible disabled checkboxes. Indentation and expansion belong
+only to Name, so checkboxes stay aligned at every depth.
 
-### Navigation
+Drop handling and context menus select the visual target before acting. Clicking
+empty space selects the **amiibo** root.
 
-Il n'existe pas de navigation applicative persistante. Le passage connexion → bibliothèque se fait automatiquement, et les liens bleus ouvrent uniquement l'aide ou les détails. La barre d'actions conserve ses libellés puis place les commandes excédentaires dans le bouton **Plus** inline lorsque la largeur manque.
+### Activity and progress
 
-### Arborescence de bibliothèque
+The bottom panel shows a persistent summary, temporary mint progress, and a
+collapsible log. Deletion exposes targets and file/folder totals. Import separates
+ZIP extraction from BLE synchronization. Long operations name the current folder
+or stage and emit a heartbeat every five seconds until transfer progress begins.
+Extreme paths are truncated in the compact status but remain available in the
+tooltip and log. Progress mirrors to the Windows taskbar, final duration is
+reported, and a subtle notification completes batch operations.
 
-La bibliothèque est le composant signature : lignes de 28 px minimum, colonne de sélection compacte suivie de Nom / Type / Taille, alternance tonale légère, survol sombre et sélection menthe profonde. La case d’en-tête sélectionne tous les fichiers et dossiers supprimables et reflète les états aucun, partiel ou complet. `fav`, `data` et leurs parents conservent une case visible mais désactivée. L’indentation et les contrôles d’expansion appartiennent exclusivement à la colonne Nom ; les cases restent alignées sur un axe fixe à toutes les profondeurs. Le dépôt et le menu contextuel sélectionnent d’abord la cible visuelle afin que la destination active reste explicite. Un clic dans le vide réactive le libellé menthe **Bibliothèque** et la destination racine.
+## Guidance
 
-### Activité et progression
-
-Le panneau inférieur affiche un résumé permanent, une barre menthe temporaire et un journal repliable. Une suppression y expose ses cibles et ses totaux fichiers/dossiers ; un import y sépare l’extraction du ZIP de la synchronisation BLE. Une confirmation réussie reste visible cinq secondes ; les erreurs expliquent la récupération attendue et réservent les détails techniques au journal.
-
-## Do's and Don'ts
-
-### Do:
-
-- **Do** laisser l'arborescence occuper l'essentiel de l'espace connecté.
-- **Do** afficher la destination avant un envoi et conserver une preuve de l'opération dans l'activité.
-- **Do** employer le libellé complet d'une action tant que la barre d'outils peut l'accueillir.
-- **Do** traduire les états Bluetooth en une instruction utilisateur et garder le diagnostic brut dans les détails.
-- **Do** conserver une case visible mais désactivée pour `fav`, `data` et leurs parents.
-- **Do** maintenir le triptyque connecter, voir, modifier, confirmer dans toute nouvelle surface.
-
-### Don't:
-
-- **Don't** présenter les chemins internes, lettres de disque ou fichiers temporaires comme des concepts utilisateur.
-- **Don't** multiplier les cartes, badges ou couleurs d'accent autour de l'arborescence.
-- **Don't** utiliser le corail pour une action destructive ou secondaire.
-- **Don't** remplacer en mode compact tous les libellés par des icônes seules.
-- **Don't** ajouter des ombres décoratives à des surfaces déjà distinguées tonalement.
-- **Don't** proposer une suppression ou un renommage qui permettrait de contourner la protection de `fav` ou `data`.
+- **Do** let the folder tree occupy most connected-state space.
+- **Do** show the destination before upload and keep proof in the activity log.
+- **Do** retain full action labels while the toolbar can accommodate them.
+- **Do** translate Bluetooth states into user instructions and keep raw
+  diagnostics in Details.
+- **Do** keep a visible disabled checkbox for `fav`, `data`, and their parents.
+- **Do** preserve the connect, inspect, modify, confirm sequence.
+- **Don't** expose internal paths, drive letters, or temporary files as user concepts.
+- **Don't** multiply cards, badges, or accents around the folder tree.
+- **Don't** use forest green for destructive or secondary actions.
+- **Don't** replace every compact-mode label with an icon.
+- **Don't** add decorative shadows to tonally distinct surfaces.
+- **Don't** permit a rename or deletion that bypasses `fav` or `data` protection.

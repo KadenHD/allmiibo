@@ -12,6 +12,7 @@ from allmiibo_ble import (
     BleakNusTransport,
     DirectoryEntry,
     PixlVfsClient,
+    StatusCallback,
     SyncReport,
     _ensure_remote_root,
     _replace_file_safely,
@@ -74,7 +75,7 @@ def _clean_relative(value: str | PurePosixPath) -> PurePosixPath:
         return PurePosixPath()
     path = PurePosixPath(text)
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
-        raise ValueError(f"Chemin relatif invalide : {value!r}")
+        raise ValueError(f"Invalid relative path: {value!r}")
     return path
 
 
@@ -102,6 +103,7 @@ class AllmiiboManager:
         self.client: PixlVfsClient | None = None
         self.remote_root: str | None = None
         self.info: ConnectionInfo | None = None
+        self._entries: dict[PurePosixPath, DirectoryEntry] | None = None
 
     @property
     def connected(self) -> bool:
@@ -109,7 +111,7 @@ class AllmiiboManager:
 
     def _require_client(self) -> tuple[PixlVfsClient, str]:
         if self.client is None or self.remote_root is None:
-            raise AllmiiboError("L’Allmiibo n’est pas connecté.")
+            raise AllmiiboError("The Allmiibo is not connected.")
         return self.client, self.remote_root
 
     async def connect(self) -> ConnectionInfo:
@@ -138,6 +140,7 @@ class AllmiiboManager:
             total_size=selected_drive.total_size,
             free_size=selected_drive.free_size,
         )
+        self._entries = None
         return self.info
 
     async def ping(self) -> None:
@@ -147,7 +150,7 @@ class AllmiiboManager:
     async def refresh_info(self) -> ConnectionInfo:
         client, remote_root = self._require_client()
         if self.info is None:
-            raise AllmiiboError("Les informations de l’Allmiibo sont indisponibles.")
+            raise AllmiiboError("Allmiibo device information is unavailable.")
         drives = await client.get_drives()
         selected_drive = next(
             (
@@ -158,7 +161,7 @@ class AllmiiboManager:
             None,
         )
         if selected_drive is None:
-            raise AllmiiboError("Le stockage de l’Allmiibo est indisponible.")
+            raise AllmiiboError("Allmiibo storage is unavailable.")
         self.info = ConnectionInfo(
             device_name=self.info.device_name,
             firmware_version=self.info.firmware_version,
@@ -173,12 +176,43 @@ class AllmiiboManager:
         self.client = None
         self.remote_root = None
         self.info = None
+        self._entries = None
         if transport is not None:
             await transport.close()
 
-    async def list_library(self) -> list[RemoteItem]:
+    async def _ensure_entries(
+        self,
+        *,
+        force_refresh: bool = False,
+        status_callback: StatusCallback | None = None,
+    ) -> dict[PurePosixPath, DirectoryEntry]:
         client, remote_root = self._require_client()
-        entries = await _walk_remote(client, remote_root)
+        if self._entries is None or force_refresh:
+            if status_callback is not None:
+                status_callback("Starting a full library scan…")
+            self._entries = await _walk_remote(
+                client,
+                remote_root,
+                status_callback=status_callback,
+            )
+            if status_callback is not None:
+                folders = sum(entry.is_directory for entry in self._entries.values())
+                files = len(self._entries) - folders
+                status_callback(
+                    f"Index complete: {files} amiibo(s), {folders} folder(s)."
+                )
+        return self._entries
+
+    async def list_library(
+        self,
+        *,
+        force_refresh: bool = False,
+        status_callback: StatusCallback | None = None,
+    ) -> list[RemoteItem]:
+        entries = await self._ensure_entries(
+            force_refresh=force_refresh,
+            status_callback=status_callback,
+        )
         result = [
             RemoteItem(
                 relative_path=relative.as_posix(),
@@ -196,13 +230,28 @@ class AllmiiboManager:
             ),
         )
 
-    async def create_folder(self, parent: str, name: str) -> str:
+    async def create_folder(
+        self,
+        parent: str,
+        name: str,
+        *,
+        status_callback: StatusCallback | None = None,
+    ) -> str:
         client, remote_root = self._require_client()
+        if status_callback is not None:
+            status_callback("Validating the new folder against the local index…")
         clean_name = _display_name(name)
         if not clean_name or "/" in clean_name or "\\" in clean_name:
-            raise ValueError("Le nom du dossier est invalide.")
-        relative = _clean_relative(parent) / clean_name
-        entries = await _walk_remote(client, remote_root)
+            raise ValueError("The folder name is invalid.")
+        parent_relative = _clean_relative(parent)
+        entries = await self._ensure_entries(status_callback=status_callback)
+        if parent_relative.parts:
+            parent_entry = entries.get(parent_relative)
+            if parent_entry is None or not parent_entry.is_directory:
+                raise FileNotFoundError(
+                    f"Parent folder not found: {parent_relative.as_posix()}"
+                )
+        relative = parent_relative / clean_name
         conflict = next(
             (
                 path
@@ -214,28 +263,41 @@ class AllmiiboManager:
         )
         if conflict is not None:
             location = relative.parent.as_posix()
-            location = "Bibliothèque" if location == "." else location
-            kind = "dossier" if entries[conflict].is_directory else "fichier"
+            location = "Library" if location == "." else location
+            kind = "folder" if entries[conflict].is_directory else "file"
             raise FileExistsError(
-                f"Un {kind} nommé « {conflict.name} » existe déjà dans {location}."
+                f'A {kind} named "{conflict.name}" already exists in {location}.'
             )
         destination = join_device_path(remote_root, relative)
         validate_device_path(destination)
+        if status_callback is not None:
+            status_callback(f"Creating on the Allmiibo: {relative.as_posix()}")
         await client.create_directory(destination)
+        entries[relative] = DirectoryEntry(clean_name, 0, True)
+        if status_callback is not None:
+            status_callback("Local index updated without another BLE scan.")
         return relative.as_posix()
 
-    async def rename(self, relative_path: str, new_name: str) -> str:
+    async def rename(
+        self,
+        relative_path: str,
+        new_name: str,
+        *,
+        status_callback: StatusCallback | None = None,
+    ) -> str:
         client, remote_root = self._require_client()
         source_relative = _clean_relative(relative_path)
-        entries = await _walk_remote(client, remote_root)
+        if status_callback is not None:
+            status_callback("Validating the rename against the local index…")
+        entries = await self._ensure_entries(status_callback=status_callback)
         source_entry = entries.get(source_relative)
         if source_entry is None:
             raise FileNotFoundError(
-                f"Élément introuvable : {source_relative.as_posix()}"
+                f"Item not found: {source_relative.as_posix()}"
             )
         if source_entry.is_directory and is_protected_directory_path(source_relative):
             raise ValueError(
-                "Les dossiers fav et data sont protégés et ne peuvent pas être renommés."
+                "The fav and data folders are protected and cannot be renamed."
             )
         clean_name = _display_name(new_name)
         if (
@@ -244,13 +306,13 @@ class AllmiiboManager:
             or "/" in clean_name
             or "\\" in clean_name
         ):
-            raise ValueError("Le nouveau nom est invalide.")
+            raise ValueError("The new name is invalid.")
         if source_relative.suffix.lower() == ".bin":
             if clean_name.lower().endswith(".bin"):
                 clean_name = clean_name[:-4]
             clean_name = _display_name(clean_name)
             if not clean_name:
-                raise ValueError("Le nom du fichier est invalide.")
+                raise ValueError("The file name is invalid.")
             clean_name += ".bin"
         destination_relative = source_relative.parent / clean_name
         conflict = next(
@@ -265,31 +327,69 @@ class AllmiiboManager:
         )
         if conflict is not None:
             raise FileExistsError(
-                f"Un élément nommé « {conflict.name} » existe déjà dans ce dossier."
+                f'An item named "{conflict.name}" already exists in this folder.'
             )
         if destination_relative == source_relative:
             return source_relative.as_posix()
         source = join_device_path(remote_root, source_relative)
         destination = join_device_path(remote_root, destination_relative)
         validate_device_path(destination)
+        if status_callback is not None:
+            status_callback(
+                f"Renaming on the Allmiibo: {source_relative.as_posix()} → "
+                f"{destination_relative.as_posix()}"
+            )
         await client.rename(source, destination)
+        moved: dict[PurePosixPath, DirectoryEntry] = {}
+        affected = [
+            path
+            for path in entries
+            if path == source_relative or source_relative in path.parents
+        ]
+        for path in affected:
+            entry = entries.pop(path)
+            if path == source_relative:
+                moved[destination_relative] = DirectoryEntry(
+                    clean_name, entry.size, entry.is_directory
+                )
+            else:
+                moved[destination_relative / path.relative_to(source_relative)] = entry
+        entries.update(moved)
+        if status_callback is not None:
+            status_callback(
+                f"Local index updated: {len(moved)} item(s) moved."
+            )
         return destination_relative.as_posix()
 
-    async def delete(self, relative_path: str) -> DeleteReport:
-        return await self.delete_many([relative_path])
+    async def delete(
+        self,
+        relative_path: str,
+        *,
+        status_callback: StatusCallback | None = None,
+    ) -> DeleteReport:
+        return await self.delete_many(
+            [relative_path], status_callback=status_callback
+        )
 
-    async def delete_many(self, relative_paths: Iterable[str]) -> DeleteReport:
+    async def delete_many(
+        self,
+        relative_paths: Iterable[str],
+        *,
+        status_callback: StatusCallback | None = None,
+    ) -> DeleteReport:
         client, remote_root = self._require_client()
         requested = {_clean_relative(path) for path in relative_paths}
         if not requested:
-            raise ValueError("Aucun élément n’a été sélectionné.")
+            raise ValueError("No item was selected.")
         if any(not relative.parts for relative in requested):
-            raise ValueError("La racine de la bibliothèque ne peut pas être supprimée.")
+            raise ValueError("The library root cannot be deleted.")
 
-        entries = await _walk_remote(client, remote_root)
+        if status_callback is not None:
+            status_callback("Resolving items to delete from the local index…")
+        entries = await self._ensure_entries(status_callback=status_callback)
         missing = [relative for relative in requested if relative not in entries]
         if missing:
-            raise FileNotFoundError(f"Élément introuvable : {missing[0].as_posix()}")
+            raise FileNotFoundError(f"Item not found: {missing[0].as_posix()}")
 
         targets = {
             relative
@@ -309,8 +409,8 @@ class AllmiiboManager:
         if blocked:
             names = ", ".join(sorted(path.as_posix() for path in blocked))
             raise ValueError(
-                f"Suppression interdite pour {names} : les dossiers fav et data "
-                "doivent toujours être conservés."
+                f"Deletion is forbidden for {names}: the fav and data folders "
+                "must always be preserved."
             )
 
         descendants = [
@@ -321,8 +421,19 @@ class AllmiiboManager:
         removed_folders = sum(entries[path].is_directory for path in descendants)
         removed_files = len(descendants) - removed_folders
         descendants.sort(key=lambda path: len(path.parts), reverse=True)
-        for path in descendants:
+        total = len(descendants)
+        for position, path in enumerate(descendants, start=1):
             await client.remove(join_device_path(remote_root, path))
+            entries.pop(path, None)
+            if status_callback is not None and (
+                position == 1 or position % 25 == 0 or position == total
+            ):
+                status_callback(
+                    f"Deleting from the Allmiibo: {position}/{total} — "
+                    f"{path.as_posix()}"
+                )
+        if status_callback is not None:
+            status_callback("Local index cleaned without another BLE scan.")
         return DeleteReport(
             requested=tuple(sorted(path.as_posix() for path in targets)),
             removed_files=removed_files,
@@ -343,11 +454,11 @@ class AllmiiboManager:
             source = source.resolve()
             if source.is_file():
                 if source.suffix.lower() != ".bin":
-                    raise ValueError(f"Seuls les fichiers .bin sont acceptés : {source.name}")
+                    raise ValueError(f"Only .bin files are accepted: {source.name}")
                 files.append((source, destination_for(source, [])))
                 continue
             if not source.is_dir():
-                raise FileNotFoundError(f"Source introuvable : {source}")
+                raise FileNotFoundError(f"Source not found: {source}")
             for path in sorted(source.rglob("*"), key=lambda item: str(item).casefold()):
                 if path.is_file() and path.suffix.lower() == ".bin":
                     relative = path.relative_to(source)
@@ -358,7 +469,7 @@ class AllmiiboManager:
                     destination = destination_for(path, directories)
                     files.append((path, destination))
         if not files:
-            raise ValueError("Aucun fichier .bin trouvé dans la sélection.")
+            raise ValueError("No .bin file was found in the selection.")
         return files
 
     async def upload(
@@ -367,11 +478,18 @@ class AllmiiboManager:
         target_directory: str = "",
         *,
         progress_callback: TransferProgress | None = None,
+        status_callback: StatusCallback | None = None,
     ) -> TransferReport:
         client, remote_root = self._require_client()
+        if status_callback is not None:
+            status_callback("Scanning the selected local files…")
         target = _clean_relative(target_directory)
         files = self._collect_sources(sources, target)
-        current_entries = await _walk_remote(client, remote_root)
+        current_entries = await self._ensure_entries(status_callback=status_callback)
+        if status_callback is not None:
+            status_callback(
+                f"{len(files)} file(s) ready; comparing against the local index…"
+            )
         report = TransferReport()
 
         directories: set[PurePosixPath] = set()
@@ -386,7 +504,7 @@ class AllmiiboManager:
             entry = current_entries.get(directory)
             if entry is not None and not entry.is_directory:
                 raise AllmiiboError(
-                    f"Un fichier bloque la création du dossier {directory.as_posix()}."
+                    f"A file blocks creation of folder {directory.as_posix()}."
                 )
             if entry is None:
                 await client.create_directory(join_device_path(remote_root, directory))
@@ -400,7 +518,7 @@ class AllmiiboManager:
             existing = current_entries.get(relative)
             if existing is not None and existing.is_directory:
                 raise AllmiiboError(
-                    f"Un dossier bloque le fichier {relative.as_posix()}."
+                    f"A folder blocks file {relative.as_posix()}."
                 )
             if (
                 existing is not None
@@ -408,7 +526,7 @@ class AllmiiboManager:
                 and await client.read_file(destination) == data
             ):
                 report.identical += 1
-                action = "identique"
+                action = "identical"
             else:
                 await _replace_file_safely(
                     client,
@@ -418,13 +536,15 @@ class AllmiiboManager:
                 )
                 if existing is None:
                     report.created += 1
-                    action = "ajouté"
+                    action = "added"
                 else:
                     report.overwritten += 1
-                    action = "remplacé"
+                    action = "overwritten"
             current_entries[relative] = DirectoryEntry(relative.name, len(data), False)
             if progress_callback is not None:
                 progress_callback(index, total, action, relative.as_posix())
+        if status_callback is not None:
+            status_callback("Local index synchronized with completed transfers.")
         return report
 
     async def import_archive(
@@ -432,21 +552,48 @@ class AllmiiboManager:
         archive_path: Path,
         *,
         progress_callback: TransferProgress | None = None,
+        status_callback: StatusCallback | None = None,
     ) -> ImportReport:
         client, remote_root = self._require_client()
+        current_entries = await self._ensure_entries(status_callback=status_callback)
         with tempfile.TemporaryDirectory(prefix="Allmiibo-Import-") as temporary:
             output = Path(temporary) / "library"
+            if status_callback is not None:
+                status_callback("Opening and validating the ZIP archive…")
+
+            def extraction_progress(
+                current: int, total: int, action: str, path: Path
+            ) -> None:
+                if status_callback is not None and (
+                    current == 1 or current % 50 == 0 or current == total
+                ):
+                    status_callback(
+                        f"Preparing ZIP: {current}/{total} — "
+                        f"{action} — {path.name}"
+                    )
+
             extraction = extract_archive(
                 archive_path,
                 output,
                 conflict="overwrite",
+                progress_callback=extraction_progress,
             )
+            if status_callback is not None:
+                status_callback(
+                    f"ZIP prepared: {extraction.extracted} file(s) extracted."
+                )
+                status_callback(
+                    "Comparing ZIP files against the device index in memory…"
+                )
             synchronization = await self._sync_import(
                 client,
                 output,
                 remote_root,
+                current_entries=current_entries,
                 progress_callback=progress_callback,
             )
+            if status_callback is not None:
+                status_callback("Cleaning temporary import data…")
         return ImportReport(extraction, synchronization)
 
     @staticmethod
@@ -455,13 +602,28 @@ class AllmiiboManager:
         output: Path,
         remote_root: str,
         *,
+        current_entries: dict[PurePosixPath, DirectoryEntry],
         progress_callback: TransferProgress | None,
     ) -> SyncReport:
         from allmiibo_ble import sync_directory
+
+        def relative_progress(
+            current: int, total: int, action: str, device_path: str
+        ) -> None:
+            if progress_callback is None:
+                return
+            prefix = remote_root.rstrip("/") + "/"
+            relative_path = (
+                device_path[len(prefix) :]
+                if device_path.startswith(prefix)
+                else PurePosixPath(device_path).name
+            )
+            progress_callback(current, total, action, relative_path)
 
         return await sync_directory(
             client,
             output,
             remote_root,
-            progress_callback=progress_callback,
+            progress_callback=relative_progress,
+            remote_entries=current_entries,
         )

@@ -39,11 +39,11 @@ class ExtractionReport:
 
 def _safe_parts(member_name: str) -> tuple[str, ...]:
     if "\\" in member_name:
-        raise ArchiveError(f"Chemin ZIP non sûr (antislash): {member_name!r}")
+        raise ArchiveError(f"Unsafe ZIP path (backslash): {member_name!r}")
 
     path = PurePosixPath(member_name)
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
-        raise ArchiveError(f"Chemin ZIP non sûr: {member_name!r}")
+        raise ArchiveError(f"Unsafe ZIP path: {member_name!r}")
 
     return path.parts
 
@@ -77,7 +77,7 @@ def _destination_for(
         parts.pop(0)
 
     if not parts:
-        raise ArchiveError(f"Entrée ZIP sans nom exploitable: {info.filename!r}")
+        raise ArchiveError(f"ZIP entry has no usable name: {info.filename!r}")
 
     destination = output_dir.joinpath(*parts)
 
@@ -85,7 +85,7 @@ def _destination_for(
     output_resolved = output_dir.resolve()
     destination_resolved = destination.resolve()
     if os.path.commonpath((output_resolved, destination_resolved)) != str(output_resolved):
-        raise ArchiveError(f"Chemin ZIP hors de la destination: {info.filename!r}")
+        raise ArchiveError(f"ZIP path escapes the destination: {info.filename!r}")
 
     return destination
 
@@ -137,7 +137,7 @@ def _choose_destination(
         if planned_signature is not None:
             if planned_signature == signature:
                 report.identical += 1
-                return None, "identique"
+                return None, "identical"
             conflict_exists = True
         else:
             conflict_exists = candidate.exists()
@@ -145,25 +145,25 @@ def _choose_destination(
                 archive, info, candidate
             ):
                 report.identical += 1
-                return None, "identique"
+                return None, "identical"
 
         if not conflict_exists:
             occupied[key] = signature
-            action = "renommé" if candidate != destination else "extrait"
+            action = "renamed" if candidate != destination else "extracted"
             return candidate, action
 
         if policy == "error":
-            raise ConflictError(f"Le fichier existe déjà: {candidate}")
+            raise ConflictError(f"The file already exists: {candidate}")
         if policy == "skip":
             report.skipped += 1
-            return None, "ignoré"
+            return None, "skipped"
         if policy == "overwrite":
             if candidate.is_dir():
                 raise ConflictError(
-                    f"Impossible de remplacer un dossier par un fichier: {candidate}"
+                    f"Cannot replace a directory with a file: {candidate}"
                 )
             occupied[key] = signature
-            return candidate, "remplacé"
+            return candidate, "overwritten"
 
         candidate = _renamed_candidate(destination, index)
         index += 1
@@ -211,7 +211,7 @@ def extract_archive(
         for info in entries:
             if _is_symlink(info):
                 raise ArchiveError(
-                    f"Lien symbolique ZIP non pris en charge: {info.filename!r}"
+                    f"ZIP symbolic links are not supported: {info.filename!r}"
                 )
             _safe_parts(info.filename)
 
@@ -238,9 +238,9 @@ def extract_archive(
                     progress_callback(position, total, action, destination)
                 continue
 
-            if action == "renommé":
+            if action == "renamed":
                 report.renamed += 1
-            elif action == "remplacé":
+            elif action == "overwritten":
                 report.overwritten += 1
             report.extracted += 1
 
@@ -268,73 +268,73 @@ def _show_progress(current: int, total: int, action: str) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Extrait fidèlement un ZIP vers data/ sans renommer ses fichiers "
-            "ou ses dossiers."
+            "Extract a ZIP archive faithfully into data/ without renaming its "
+            "files or directories."
         )
     )
     parser.add_argument(
         "archive",
         type=Path,
         nargs="?",
-        help="archive ZIP source (facultative avec --sync)",
+        help="source ZIP archive (optional with --sync)",
     )
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
         default=Path("data"),
-        help="dossier de destination (défaut: data)",
+        help="destination directory (default: data)",
     )
     parser.add_argument(
         "--conflict",
         choices=("error", "skip", "overwrite", "rename"),
         default="overwrite",
         help=(
-            "action si un nom contient déjà des données différentes "
-            "(défaut: overwrite)"
+            "action when a name already contains different data "
+            "(default: overwrite)"
         ),
     )
     parser.add_argument(
         "--keep-root",
         action="store_true",
-        help="conserve le dossier racine commun présent dans le ZIP",
+        help="keep the common root directory from the ZIP archive",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="simule l'extraction sans écrire de fichier",
+        help="simulate extraction without writing files",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
         "--sync",
         action="store_true",
-        help="synchronise ensuite les .bin locaux vers l'Allmiibo en BLE",
+        help="then synchronize local .bin files to the Allmiibo over BLE",
     )
     parser.add_argument(
         "--device",
-        help="nom ou adresse BLE exacte de l'appareil (défaut: premier compatible)",
+        help="exact device BLE name or address (default: first compatible device)",
     )
     parser.add_argument(
         "--drive",
         choices=("E", "I", "e", "i"),
-        help="disque cible (défaut: E si disponible, sinon I)",
+        help="target drive (default: E when available, otherwise I)",
     )
     parser.add_argument(
         "--device-root",
         default="amiibo",
-        help="sous-dossier cible sur l'appareil (défaut: amiibo)",
+        help="target subdirectory on the device (default: amiibo)",
     )
     parser.add_argument(
         "--scan-timeout",
         type=float,
         default=15.0,
-        help="durée maximale de recherche BLE en secondes (défaut: 15)",
+        help="maximum BLE scan duration in seconds (default: 15)",
     )
     parser.add_argument(
         "--response-timeout",
         type=float,
         default=20.0,
-        help="inactivité maximale d'une réponse BLE en secondes (défaut: 20)",
+        help="maximum idle time for a BLE response in seconds (default: 20)",
     )
     return parser
 
@@ -344,17 +344,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.archive is None and not args.sync:
-        parser.error("indiquer une archive ZIP ou utiliser --sync")
+        parser.error("provide a ZIP archive or use --sync")
     if args.archive is not None and args.sync and args.dry_run:
         parser.error(
-            "--dry-run avec --sync nécessite une synchronisation seule; "
-            "préparer d'abord data/, puis relancer avec --sync --dry-run"
+            "--dry-run with --sync requires synchronization only; "
+            "prepare data/ first, then run again with --sync --dry-run"
         )
     if args.scan_timeout <= 0 or args.response_timeout <= 0:
-        parser.error("les délais doivent être strictement positifs")
+        parser.error("timeouts must be strictly positive")
     clean_device_root = args.device_root.replace("\\", "/").strip("/")
     if not clean_device_root or ":" in clean_device_root:
-        parser.error("--device-root doit être un sous-dossier relatif, ex. amiibo")
+        parser.error("--device-root must be a relative subdirectory, e.g. amiibo")
 
     if args.archive is not None:
         try:
@@ -368,16 +368,16 @@ def main(argv: list[str] | None = None) -> int:
                 show_progress=not args.verbose,
             )
         except (ArchiveError, ConflictError, OSError, zipfile.BadZipFile) as error:
-            print(f"Erreur: {error}", file=sys.stderr)
+            print(f"Error: {error}", file=sys.stderr)
             return 1
 
-        mode = "Simulation" if args.dry_run else "Préparation terminée"
+        mode = "Simulation" if args.dry_run else "Preparation complete"
         print(
-            f"{mode}: {report.extracted} fichier(s) traité(s), "
-            f"{report.renamed} renommé(s) pour conflit, "
-            f"{report.overwritten} remplacé(s), "
-            f"{report.identical} déjà identique(s), "
-            f"{report.skipped} ignoré(s)."
+            f"{mode}: {report.extracted} file(s) processed, "
+            f"{report.renamed} renamed after conflicts, "
+            f"{report.overwritten} overwritten, "
+            f"{report.identical} already identical, "
+            f"{report.skipped} skipped."
         )
 
     if args.sync:
@@ -385,8 +385,8 @@ def main(argv: list[str] | None = None) -> int:
             from allmiibo_ble import AllmiiboError, sync_to_device
 
             print(
-                "Recherche de l'Allmiibo… Place-le dans Bluetooth Transmission "
-                "et ferme le site Web s'il est connecté."
+                "Scanning for the Allmiibo… Open Bluetooth Transmission on the "
+                "device and close the website if it is connected."
             )
             device_name, remote_root, sync_report = asyncio.run(
                 sync_to_device(
@@ -402,19 +402,19 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         except (AllmiiboError, OSError, ValueError) as error:
-            print(f"Erreur de synchronisation: {error}", file=sys.stderr)
+            print(f"Synchronization error: {error}", file=sys.stderr)
             return 1
         except KeyboardInterrupt:
-            print("Synchronisation interrompue.", file=sys.stderr)
+            print("Synchronization interrupted.", file=sys.stderr)
             return 130
 
-        mode = "Simulation BLE" if args.dry_run else "Synchronisation terminée"
+        mode = "BLE simulation" if args.dry_run else "Synchronization complete"
         print(
-            f"{mode} avec {device_name} vers {remote_root}: "
-            f"{sync_report.created} envoyé(s), "
-            f"{sync_report.overwritten} remplacé(s), "
-            f"{sync_report.identical} identique(s) ignoré(s), "
-            f"{sync_report.folders_created} dossier(s) créé(s)."
+            f"{mode} with {device_name} to {remote_root}: "
+            f"{sync_report.created} uploaded, "
+            f"{sync_report.overwritten} overwritten, "
+            f"{sync_report.identical} identical file(s) skipped, "
+            f"{sync_report.folders_created} folder(s) created."
         )
     return 0
 

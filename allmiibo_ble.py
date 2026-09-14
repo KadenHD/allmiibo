@@ -59,8 +59,8 @@ class DeviceCommandError(AllmiiboError):
     """Raised when the device rejects a VFS command."""
 
     def __init__(self, command: int, message: str | None = None) -> None:
-        detail = message or "commande refusée par l'appareil"
-        super().__init__(f"Commande 0x{command:02x}: {detail}")
+        detail = message or "command rejected by the device"
+        super().__init__(f"Command 0x{command:02x}: {detail}")
         self.command = command
 
 
@@ -119,7 +119,7 @@ class VfsClient(Protocol):
 def _pack_string(value: str) -> bytes:
     encoded = value.encode("utf-8")
     if len(encoded) > 0xFFFF:
-        raise ValueError("Chaîne trop longue pour le protocole Pixl.js")
+        raise ValueError("String is too long for the Pixl.js protocol")
     return struct.pack("<H", len(encoded)) + encoded
 
 
@@ -134,7 +134,7 @@ class _Reader:
 
     def take(self, length: int) -> bytes:
         if length < 0 or self.remaining < length:
-            raise ProtocolError("Réponse BLE tronquée")
+            raise ProtocolError("Truncated BLE response")
         result = self.data[self.offset : self.offset + length]
         self.offset += length
         return result
@@ -152,29 +152,29 @@ class _Reader:
         try:
             return self.take(self.u16()).decode("utf-8")
         except UnicodeDecodeError as error:
-            raise ProtocolError("Texte UTF-8 invalide dans la réponse BLE") from error
+            raise ProtocolError("Invalid UTF-8 text in the BLE response") from error
 
 
 def validate_device_path(path: str) -> None:
     if not DRIVE_PATH.match(path):
-        raise ValueError(f"Chemin Allmiibo invalide: {path!r}")
+        raise ValueError(f"Invalid Allmiibo path: {path!r}")
     if "\\" in path or "//" in path[3:] or any(ord(char) < 32 for char in path):
-        raise ValueError(f"Chemin Allmiibo invalide: {path!r}")
+        raise ValueError(f"Invalid Allmiibo path: {path!r}")
 
     relative = path[3:]
     parts = PurePosixPath(relative).parts if relative else ()
     if any(part in {"", ".", ".."} for part in parts):
-        raise ValueError(f"Chemin Allmiibo invalide: {path!r}")
+        raise ValueError(f"Invalid Allmiibo path: {path!r}")
     if len(path.encode("utf-8")) > MAX_DEVICE_PATH_BYTES:
         raise ValueError(
-            f"Chemin Allmiibo trop long ({len(path.encode('utf-8'))}/"
-            f"{MAX_DEVICE_PATH_BYTES} octets): {path}"
+            f"Allmiibo path is too long ({len(path.encode('utf-8'))}/"
+            f"{MAX_DEVICE_PATH_BYTES} bytes): {path}"
         )
     for part in parts:
         if len(part.encode("utf-8")) > MAX_DEVICE_NAME_BYTES:
             raise ValueError(
-                f"Nom Allmiibo trop long ({len(part.encode('utf-8'))}/"
-                f"{MAX_DEVICE_NAME_BYTES} octets): {part}"
+                f"Allmiibo name is too long ({len(part.encode('utf-8'))}/"
+                f"{MAX_DEVICE_NAME_BYTES} bytes): {part}"
             )
 
 
@@ -213,7 +213,7 @@ class BleakNusTransport:
             from bleak import BleakClient, BleakScanner
         except ImportError as error:
             raise BluetoothDependencyError(
-                "La dépendance Bluetooth manque. Exécuter: "
+                "The Bluetooth dependency is missing. Run: "
                 "python -m pip install -r requirements.txt"
             ) from error
 
@@ -235,10 +235,10 @@ class BleakNusTransport:
             matches, timeout=scan_timeout
         )
         if device is None:
-            suffix = f" correspondant à {selector!r}" if selector else ""
+            suffix = f" matching {selector!r}" if selector else ""
             raise DeviceNotFoundError(
-                "Aucun appareil Pixl.js/Allmiibo détecté"
-                f"{suffix}. Activer le mode Bluetooth Transmission."
+                "No Pixl.js/Allmiibo device was detected"
+                f"{suffix}. Enable Bluetooth Transmission mode."
             )
 
         client = BleakClient(device)
@@ -252,7 +252,7 @@ class BleakNusTransport:
 
     async def write(self, data: bytes) -> None:
         if self._client is None:
-            raise AllmiiboError("Transport BLE non connecté")
+            raise AllmiiboError("BLE transport is not connected")
         await self._client.write_gatt_char(NUS_RX_UUID, data, response=True)
 
     async def read(self, timeout: float) -> bytes:
@@ -260,7 +260,7 @@ class BleakNusTransport:
             return await asyncio.wait_for(self._notifications.get(), timeout)
         except TimeoutError as error:
             raise ProtocolError(
-                f"Aucune réponse de l'Allmiibo depuis {timeout:.1f} s"
+                f"No response from the Allmiibo for {timeout:.1f} seconds"
             ) from error
 
     async def close(self) -> None:
@@ -291,7 +291,7 @@ class PixlVfsClient:
         packet = struct.pack("<BBH", command, 0, 0) + payload
         if len(packet) > MAX_GATT_PACKET:
             raise ValueError(
-                f"Requête 0x{command:02x} trop longue: {len(packet)} octets"
+                f"Request 0x{command:02x} is too long: {len(packet)} bytes"
             )
 
         async with self._lock:
@@ -305,16 +305,16 @@ class PixlVfsClient:
                 remaining = absolute_deadline - loop.time()
                 if remaining <= 0:
                     raise ProtocolError(
-                        f"Délai absolu dépassé pour la commande 0x{command:02x}"
+                        f"Absolute timeout exceeded for command 0x{command:02x}"
                     )
                 frame = await self.transport.read(min(self.idle_timeout, remaining))
                 if len(frame) < HEADER_SIZE:
-                    raise ProtocolError("Trame BLE plus courte que son en-tête")
+                    raise ProtocolError("BLE frame is shorter than its header")
 
                 response_command, status, chunk = struct.unpack("<BBH", frame[:4])
                 if response_command != command:
                     raise ProtocolError(
-                        f"Réponse 0x{response_command:02x} reçue pour la commande "
+                        f"Response 0x{response_command:02x} received for command "
                         f"0x{command:02x}"
                     )
                 if status != 0:
@@ -342,7 +342,7 @@ class PixlVfsClient:
                 )
             )
         if reader.remaining:
-            raise ProtocolError("Données superflues dans la liste des disques")
+            raise ProtocolError("Unexpected data in the drive list")
         return drives
 
     async def _open_file(self, path: str, mode: int) -> int:
@@ -351,7 +351,7 @@ class PixlVfsClient:
             CMD_OPEN_FILE, _pack_string(path) + struct.pack("<I", mode)
         )
         if len(response) != 1:
-            raise ProtocolError("Identifiant de fichier absent ou invalide")
+            raise ProtocolError("Missing or invalid file identifier")
         return response[0]
 
     async def _close_file(self, file_id: int) -> None:
@@ -411,7 +411,7 @@ class PixlVfsClient:
 
 def _collect_local_tree(local_root: Path) -> tuple[list[PurePosixPath], list[Path]]:
     if not local_root.is_dir():
-        raise FileNotFoundError(f"Dossier local introuvable: {local_root}")
+        raise FileNotFoundError(f"Local folder not found: {local_root}")
 
     files: list[Path] = []
     for current, dirnames, filenames in os.walk(local_root):
@@ -420,7 +420,7 @@ def _collect_local_tree(local_root: Path) -> tuple[list[PurePosixPath], list[Pat
             if filename.lower().endswith(".bin"):
                 path = Path(current) / filename
                 if path.is_symlink():
-                    raise ValueError(f"Lien symbolique local non pris en charge: {path}")
+                    raise ValueError(f"Local symbolic links are not supported: {path}")
                 files.append(path)
 
     directories_set: set[PurePosixPath] = set()
@@ -434,17 +434,29 @@ def _collect_local_tree(local_root: Path) -> tuple[list[PurePosixPath], list[Pat
 
 
 async def _walk_remote(
-    client: VfsClient, root: str
+    client: VfsClient,
+    root: str,
+    *,
+    status_callback: StatusCallback | None = None,
 ) -> dict[PurePosixPath, DirectoryEntry]:
     result: dict[PurePosixPath, DirectoryEntry] = {}
 
     async def visit(path: str, relative: PurePosixPath) -> None:
-        for entry in await client.read_directory(path):
+        display_path = "Library" if not relative.parts else relative.as_posix()
+        if status_callback is not None:
+            status_callback(f"Reading folder: {display_path}")
+        entries = await client.read_directory(path)
+        for entry in entries:
             child_relative = relative / entry.name
             child_path = join_device_path(root, child_relative)
             result[child_relative] = entry
             if entry.is_directory:
                 await visit(child_path, child_relative)
+        if status_callback is not None:
+            status_callback(
+                f"Folder scanned: {display_path} — {len(entries)} direct item(s), "
+                f"{len(result)} indexed"
+            )
 
     await visit(root, PurePosixPath())
     return result
@@ -469,7 +481,7 @@ async def _ensure_remote_root(
             created += 1
         elif not match.is_directory:
             raise AllmiiboError(
-                f"Un fichier empêche la création du dossier distant: {current}"
+                f"A file prevents creation of the remote folder: {current}"
             )
     return True, created
 
@@ -485,7 +497,7 @@ async def _replace_file_safely(
     try:
         await client.write_file(temporary, data)
         if await client.read_file(temporary) != data:
-            raise ProtocolError(f"Vérification après transfert échouée: {path}")
+            raise ProtocolError(f"Post-transfer verification failed: {path}")
 
         if not destination_exists:
             await client.rename(temporary, path)
@@ -499,11 +511,11 @@ async def _replace_file_safely(
                 await client.rename(backup, path)
             except Exception as rollback_error:
                 raise AllmiiboError(
-                    "Remplacement et restauration impossibles. Les données restent "
-                    f"récupérables dans {temporary} et {backup}."
+                    "Replacement and recovery both failed. The data can still be "
+                    f"recovered from {temporary} and {backup}."
                 ) from rollback_error
             raise AllmiiboError(
-                f"Remplacement annulé et ancien fichier restauré: {path}"
+                f"Replacement cancelled and previous file restored: {path}"
             ) from replacement_error
         await client.remove(backup)
     except Exception:
@@ -523,11 +535,12 @@ async def sync_directory(
     verbose: bool = False,
     show_progress: bool = False,
     progress_callback: SyncProgress | None = None,
+    remote_entries: dict[PurePosixPath, DirectoryEntry] | None = None,
 ) -> SyncReport:
     """Push local .bin files, overwrite differences, and keep remote-only files."""
     validate_device_path(remote_root)
     if remote_root in {"E:/", "I:/"}:
-        raise ValueError("La synchronisation doit cibler un sous-dossier du disque")
+        raise ValueError("Synchronization must target a drive subdirectory")
 
     directories, files = _collect_local_tree(local_root)
     local_file_items = [
@@ -544,10 +557,14 @@ async def sync_directory(
     for relative, _path, _size in local_file_items:
         join_device_path(remote_root, relative)
 
-    root_exists, root_folders_created = await _ensure_remote_root(
-        client, remote_root, dry_run=dry_run
-    )
-    remote = await _walk_remote(client, remote_root) if root_exists else {}
+    if remote_entries is None:
+        root_exists, root_folders_created = await _ensure_remote_root(
+            client, remote_root, dry_run=dry_run
+        )
+        remote = await _walk_remote(client, remote_root) if root_exists else {}
+    else:
+        root_folders_created = 0
+        remote = remote_entries
     report = SyncReport(folders_created=root_folders_created)
 
     for relative in directories:
@@ -555,14 +572,15 @@ async def sync_directory(
         destination = join_device_path(remote_root, relative)
         if entry is not None and not entry.is_directory:
             raise AllmiiboError(
-                f"Un fichier distant bloque le dossier local: {destination}"
+                f"A remote file blocks the local folder: {destination}"
             )
         if entry is None:
             report.folders_created += 1
             if verbose:
-                print(f"dossier    {destination}")
+                print(f"folder     {destination}")
             if not dry_run:
                 await client.create_directory(destination)
+                remote[relative] = DirectoryEntry(relative.name, 0, True)
 
     total = len(local_file_items)
     for position, (relative, local_path, local_size) in enumerate(
@@ -572,7 +590,7 @@ async def sync_directory(
         entry = remote.get(relative)
         if entry is not None and entry.is_directory:
             raise AllmiiboError(
-                f"Un dossier distant bloque le fichier local: {destination}"
+                f"A remote folder blocks the local file: {destination}"
             )
 
         local_data = local_path.read_bytes()
@@ -581,19 +599,19 @@ async def sync_directory(
             if await client.read_file(destination) == local_data:
                 report.identical += 1
                 if verbose:
-                    print(f"identique  {destination}")
+                    print(f"identical  {destination}")
                 elif show_progress:
-                    _show_progress(position, total, "identique")
+                    _show_progress(position, total, "identical")
                 if progress_callback is not None:
-                    progress_callback(position, total, "identique", destination)
+                    progress_callback(position, total, "identical", destination)
                 continue
 
         if destination_exists:
             report.overwritten += 1
-            action = "remplacé"
+            action = "overwritten"
         else:
             report.created += 1
-            action = "envoyé"
+            action = "uploaded"
         if verbose:
             print(f"{action:10} {destination}")
         if not dry_run:
@@ -603,6 +621,7 @@ async def sync_directory(
                 local_data,
                 destination_exists=destination_exists,
             )
+            remote[relative] = DirectoryEntry(relative.name, local_size, False)
         if show_progress:
             _show_progress(position, total, action)
         if progress_callback is not None:
@@ -627,18 +646,18 @@ def choose_remote_root(
     if requested_drive is not None:
         label = requested_drive.upper()
         if label not in available:
-            raise AllmiiboError(f"Disque {label}: indisponible sur l'Allmiibo")
+            raise AllmiiboError(f"Drive {label}: unavailable on the Allmiibo")
     else:
         label = next(
             (candidate for candidate in ("E", "I") if candidate in available),
             "",
         )
         if not label:
-            raise AllmiiboError("Aucun disque disponible sur l'Allmiibo")
+            raise AllmiiboError("No drive is available on the Allmiibo")
 
     clean_folder = folder.replace("\\", "/").strip("/")
     if not clean_folder or ":" in clean_folder:
-        raise ValueError("--device-root doit être un sous-dossier relatif, ex. amiibo")
+        raise ValueError("--device-root must be a relative subdirectory, e.g. amiibo")
     return join_device_path(f"{label}:/", clean_folder)
 
 
@@ -660,9 +679,9 @@ async def sync_to_device(
     try:
         device_name = await transport.connect(selector, scan_timeout)
         if status_callback is not None:
-            status_callback(f"Connecté à {device_name}. Inventaire distant…")
+            status_callback(f"Connected to {device_name}. Scanning remote files…")
         if show_progress:
-            print(f"Connecté à {device_name}. Inventaire des fichiers distants…")
+            print(f"Connected to {device_name}. Scanning remote files…")
         client = PixlVfsClient(transport, idle_timeout=response_timeout)
         drives = await client.get_drives()
         remote_root = choose_remote_root(drives, drive, device_root)

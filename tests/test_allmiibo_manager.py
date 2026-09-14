@@ -39,6 +39,58 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
             [("Zelda", True), ("Zelda/Link.bin", False)],
         )
 
+    async def test_library_cache_avoids_repeated_ble_walks(self) -> None:
+        client = FakeVfs()
+        client.directories.add("E:/amiibo/Zelda")
+        client.files["E:/amiibo/Zelda/Link.bin"] = b"link"
+        manager = connected_manager(client)
+
+        await manager.list_library()
+        initial_reads = client.read_directory_count
+        await manager.list_library()
+
+        self.assertEqual(client.read_directory_count, initial_reads)
+
+        client.files["E:/amiibo/Zelda/Zelda.bin"] = b"zelda"
+        cached = await manager.list_library()
+        self.assertNotIn("Zelda/Zelda.bin", {item.relative_path for item in cached})
+
+        refreshed = await manager.list_library(force_refresh=True)
+        self.assertGreater(client.read_directory_count, initial_reads)
+        self.assertIn("Zelda/Zelda.bin", {item.relative_path for item in refreshed})
+
+    async def test_mutations_update_cache_without_another_ble_walk(self) -> None:
+        client = FakeVfs()
+        client.directories.add("E:/amiibo/Zelda")
+        client.files["E:/amiibo/Zelda/Link.bin"] = b"link"
+        manager = connected_manager(client)
+        await manager.list_library()
+        initial_reads = client.read_directory_count
+
+        await manager.create_folder("", "Smash")
+        await manager.rename("Zelda/Link.bin", "Hero.bin")
+        await manager.delete("Zelda/Hero.bin")
+        items = await manager.list_library()
+
+        self.assertEqual(client.read_directory_count, initial_reads)
+        self.assertIn("Smash", {item.relative_path for item in items})
+        self.assertNotIn("Zelda/Hero.bin", {item.relative_path for item in items})
+
+    async def test_full_refresh_reports_each_scanned_stage(self) -> None:
+        client = FakeVfs()
+        client.directories.add("E:/amiibo/Zelda")
+        client.files["E:/amiibo/Zelda/Link.bin"] = b"link"
+        messages: list[str] = []
+
+        await connected_manager(client).list_library(
+            force_refresh=True,
+            status_callback=messages.append,
+        )
+
+        self.assertTrue(any("Reading folder: Library" in value for value in messages))
+        self.assertTrue(any("Folder scanned: Zelda" in value for value in messages))
+        self.assertTrue(any("Index complete" in value for value in messages))
+
     async def test_manual_upload_merges_without_rewriting_names(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -140,7 +192,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
 
         for target in ("fav", "DATA", "Collection"):
             with self.subTest(target=target):
-                with self.assertRaisesRegex(ValueError, "doivent toujours être conservés"):
+                with self.assertRaisesRegex(ValueError, "must always be preserved"):
                     await manager.delete(target)
 
         self.assertIn("E:/amiibo/fav", client.directories)
@@ -151,7 +203,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         client = FakeVfs()
         client.directories.add("E:/amiibo/fav")
 
-        with self.assertRaisesRegex(ValueError, "ne peuvent pas être renommés"):
+        with self.assertRaisesRegex(ValueError, "cannot be renamed"):
             await connected_manager(client).rename("fav", "Favoris")
 
         self.assertIn("E:/amiibo/fav", client.directories)
@@ -178,7 +230,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         )
         manager = connected_manager(client)
 
-        with self.assertRaisesRegex(FileExistsError, "existe déjà"):
+        with self.assertRaisesRegex(FileExistsError, "already exists"):
             await manager.create_folder("", "zelda")
 
         nested = await manager.create_folder("Other", "Zelda")
@@ -204,7 +256,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        with self.assertRaisesRegex(FileExistsError, "existe déjà"):
+        with self.assertRaisesRegex(FileExistsError, "already exists"):
             await connected_manager(client).rename("Link.bin", "zelda.bin")
 
         self.assertIn("E:/amiibo/Link.bin", client.files)
@@ -226,7 +278,10 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
                 }
             )
 
-            report = await connected_manager(client).import_archive(archive_path)
+            manager = connected_manager(client)
+            await manager.list_library()
+            initial_reads = client.read_directory_count
+            report = await manager.import_archive(archive_path)
 
             self.assertEqual(report.synchronization.overwritten, 1)
             self.assertEqual(report.synchronization.identical, 1)
@@ -234,6 +289,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
                 client.files["E:/amiibo/[AC] 001 - Isabelle.bin"], b"new"
             )
             self.assertEqual(client.files["E:/amiibo/Personal.bin"], b"keep")
+            self.assertEqual(client.read_directory_count, initial_reads)
 
 
 if __name__ == "__main__":

@@ -15,4 +15,4 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $buildPython -m PyInstaller --noconfirm --clean ./AllmiiboManager.spec
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "Executable créé : ./dist/AllmiiboManager.exe"
+Write-Host "Executable created: ./dist/AllmiiboManager.exe"
