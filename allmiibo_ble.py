@@ -9,7 +9,7 @@ import struct
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import Callable, Protocol
 
 
 NUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
@@ -86,6 +86,10 @@ class SyncReport:
     overwritten: int = 0
     identical: int = 0
     folders_created: int = 0
+
+
+SyncProgress = Callable[[int, int, str, str], None]
+StatusCallback = Callable[[str], None]
 
 
 class PacketTransport(Protocol):
@@ -518,6 +522,7 @@ async def sync_directory(
     dry_run: bool = False,
     verbose: bool = False,
     show_progress: bool = False,
+    progress_callback: SyncProgress | None = None,
 ) -> SyncReport:
     """Push local .bin files, overwrite differences, and keep remote-only files."""
     validate_device_path(remote_root)
@@ -579,6 +584,8 @@ async def sync_directory(
                     print(f"identique  {destination}")
                 elif show_progress:
                     _show_progress(position, total, "identique")
+                if progress_callback is not None:
+                    progress_callback(position, total, "identique", destination)
                 continue
 
         if destination_exists:
@@ -598,6 +605,8 @@ async def sync_directory(
             )
         if show_progress:
             _show_progress(position, total, action)
+        if progress_callback is not None:
+            progress_callback(position, total, action, destination)
 
     return report
 
@@ -644,10 +653,14 @@ async def sync_to_device(
     dry_run: bool = False,
     verbose: bool = False,
     show_progress: bool = False,
+    progress_callback: SyncProgress | None = None,
+    status_callback: StatusCallback | None = None,
 ) -> tuple[str, str, SyncReport]:
     transport = BleakNusTransport()
     try:
         device_name = await transport.connect(selector, scan_timeout)
+        if status_callback is not None:
+            status_callback(f"Connecté à {device_name}. Inventaire distant…")
         if show_progress:
             print(f"Connecté à {device_name}. Inventaire des fichiers distants…")
         client = PixlVfsClient(transport, idle_timeout=response_timeout)
@@ -660,6 +673,7 @@ async def sync_to_device(
             dry_run=dry_run,
             verbose=verbose,
             show_progress=show_progress,
+            progress_callback=progress_callback,
         )
         return device_name, remote_root, report
     finally:

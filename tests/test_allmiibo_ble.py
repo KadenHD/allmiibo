@@ -155,7 +155,7 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(client.files["E:/amiibo/extra.bin"], b"keep")
             self.assertNotIn("E:/amiibo/ignored.txt", client.files)
 
-    async def test_sync_rejects_non_formatted_long_paths(self) -> None:
+    async def test_sync_rejects_device_incompatible_long_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             local = Path(temporary)
             directory = local / "A very long collection name" / "Another long series name"
@@ -180,6 +180,27 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(report.overwritten, 1)
             self.assertEqual(client.files["E:/amiibo/different.bin"], b"old")
             self.assertEqual(client.write_count, 0)
+
+    async def test_reports_file_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            local = Path(temporary)
+            (local / "same.bin").write_bytes(b"same")
+            (local / "new.bin").write_bytes(b"new")
+            client = FakeVfs()
+            client.files["E:/amiibo/same.bin"] = b"same"
+            events: list[tuple[int, int, str, str]] = []
+
+            await sync_directory(
+                client,
+                local,
+                "E:/amiibo",
+                progress_callback=lambda *event: events.append(event),
+            )
+
+            self.assertEqual([event[:2] for event in events], [(1, 2), (2, 2)])
+            self.assertEqual(
+                {event[2] for event in events}, {"envoyé", "identique"}
+            )
 
 
 class PathTests(unittest.TestCase):

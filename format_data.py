@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Extract an Allmiibo ZIP archive into data/ and normalize .bin names."""
+"""Extract an Allmiibo ZIP archive into data/ without rewriting its names."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import os
-import re
 import shutil
 import stat
 import sys
@@ -14,45 +13,11 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO, Iterable, Literal
+from typing import BinaryIO, Callable, Iterable, Literal
 
 
-BRACKET_PREFIX = re.compile(r"^\[[^\]\r\n]+\]\s*")
-NUMBERED_PREFIX = re.compile(r"^[A-Za-z0-9]+\s+-\s+")
-COMPACT_NUMBERED_PREFIX = re.compile(r"^\d{2,3}\s*-\s*")
-UNDERSCORE_NUMBERED_PREFIX = re.compile(
-    r"^[A-Za-z][A-Za-z0-9-]*_[A-Za-z]*\d+_-_(.+)$"
-)
-UNDERSCORE_GAME_PREFIX = re.compile(r"^[A-Z][A-Z0-9-]{1,7}_(.+)$")
-LEGACY_BIN_PREFIX = re.compile(r"^\[[^\]\r\n]+\]\s+.+?\s+-\s+")
-WHITESPACE = re.compile(r"\s+")
-
-DEVICE_PATH_LIMIT = 63
-DEVICE_NAME_LIMIT = 47
-
-DIRECTORY_ALIASES = {
-    "Animal Crossing x Sanrio Series": "Sanrio",
-    "Welcome amiibo Series": "Welcome amiibo",
-    "Jikkyou Powerful Pro Baseball": "Power Pros",
-    "Monster Hunter Rise": "MH Rise",
-    "Monster Hunter Stories": "MH Stories",
-    "Skylanders SuperChargers": "Skylanders",
-    "Super Mario Bros. 30th Anniversary": "30th Anniversary",
-    "Super Mario Cereal": "Cereal",
-    "Super Mario Figures": "Figures",
-    "The Legend of Zelda": "Zelda",
-    "The Legend of Zelda 30th Anniversary": "30th Anniversary",
-    "The Legend of Zelda Breath of the Wild": "BOTW",
-    "The Legend of Zelda Link's Awakening": "Link's Awakening",
-    "The Legend of Zelda Skyward Sword": "Skyward Sword",
-    "The Legend of Zelda Twilight Princess": "Twilight Princess",
-}
-
-TEXT_REPLACEMENTS = {
-    "The Legend of Zelda": "Zelda",
-    "The Wind Waker": "Wind Waker",
-}
 ConflictPolicy = Literal["error", "skip", "overwrite", "rename"]
+ExtractionProgress = Callable[[int, int, str, Path], None]
 
 
 class ArchiveError(ValueError):
@@ -70,102 +35,6 @@ class ExtractionReport:
     overwritten: int = 0
     identical: int = 0
     skipped: int = 0
-    normalized: int = 0
-    shortened: int = 0
-    legacy_removed: int = 0
-
-
-def normalize_bin_name(filename: str) -> str:
-    """Return a clean display name for the supported .bin naming schemes."""
-    if not filename.lower().endswith(".bin"):
-        return filename
-
-    stem = filename[:-4]
-    had_bracket = BRACKET_PREFIX.match(stem) is not None
-    stem = BRACKET_PREFIX.sub("", stem, count=1)
-
-    underscored = UNDERSCORE_NUMBERED_PREFIX.match(stem)
-    if underscored:
-        stem = underscored.group(1)
-    elif had_bracket:
-        stem = NUMBERED_PREFIX.sub("", stem, count=1)
-    elif "_" in stem:
-        game_prefixed = UNDERSCORE_GAME_PREFIX.match(stem)
-        if game_prefixed:
-            stem = game_prefixed.group(1)
-    else:
-        stem = COMPACT_NUMBERED_PREFIX.sub("", stem, count=1)
-
-    stem = WHITESPACE.sub(" ", stem.replace("_", " ")).strip(" ._-")
-    for source, replacement in TEXT_REPLACEMENTS.items():
-        stem = stem.replace(source, replacement)
-    if stem.isalpha() and stem.isupper():
-        stem = stem.capitalize()
-    return f"{stem}.bin" if stem else filename
-
-
-def normalize_directory_name(name: str) -> str:
-    normalized = WHITESPACE.sub(" ", name.replace("_", " ")).strip(" ._-")
-    return DIRECTORY_ALIASES.get(normalized, normalized)
-
-
-def _utf8_prefix(value: str, maximum_bytes: int) -> str:
-    result = bytearray()
-    for character in value:
-        encoded = character.encode("utf-8")
-        if len(result) + len(encoded) > maximum_bytes:
-            break
-        result.extend(encoded)
-    return result.decode("utf-8")
-
-
-def _shorten_readably(value: str, maximum_bytes: int, *, suffix: str = "") -> str:
-    available = maximum_bytes - len(suffix.encode("utf-8"))
-    if available < 1:
-        raise ArchiveError(f"Impossible de raccourcir proprement {value!r}")
-
-    prefix = _utf8_prefix(value, available).rstrip(" ._-")
-    word_break = prefix.rfind(" ")
-    if word_break >= max(4, len(prefix) // 2):
-        prefix = prefix[:word_break].rstrip(" ._-")
-    if not prefix:
-        raise ArchiveError(f"Impossible de raccourcir proprement {value!r}")
-    return prefix + suffix
-
-
-def _fit_final_path(
-    directories: list[str], filename: str, device_root: str
-) -> tuple[list[str], str]:
-    fitted_directories = [
-        _shorten_readably(name, DEVICE_NAME_LIMIT)
-        if len(name.encode("utf-8")) > DEVICE_NAME_LIMIT
-        else name
-        for name in directories
-    ]
-
-    suffix = Path(filename).suffix
-    stem = filename[: -len(suffix)] if suffix else filename
-    filename_limit = DEVICE_NAME_LIMIT
-    prefix = f"E:/{device_root.strip('/')}/"
-    directory_prefix = "/".join(fitted_directories)
-    if directory_prefix:
-        prefix += directory_prefix + "/"
-    filename_limit = min(
-        filename_limit,
-        DEVICE_PATH_LIMIT - len(prefix.encode("utf-8")),
-    )
-    if filename_limit < len(suffix.encode("utf-8")) + 1:
-        raise ArchiveError(
-            "Arborescence trop profonde pour l'Allmiibo, même après les alias: "
-            f"{prefix}{filename}"
-        )
-    if len(filename.encode("utf-8")) > filename_limit:
-        filename = _shorten_readably(stem, filename_limit, suffix=suffix)
-
-    final_path = prefix + filename
-    if len(final_path.encode("utf-8")) > DEVICE_PATH_LIMIT:
-        raise ArchiveError(f"Chemin Allmiibo encore trop long: {final_path}")
-    return fitted_directories, filename
 
 
 def _safe_parts(member_name: str) -> tuple[str, ...]:
@@ -202,8 +71,7 @@ def _destination_for(
     info: zipfile.ZipInfo,
     output_dir: Path,
     stripped_root: str | None,
-    device_root: str,
-) -> tuple[Path, bool, bool]:
+) -> Path:
     parts = list(_safe_parts(info.filename))
     if stripped_root is not None and parts[0] == stripped_root:
         parts.pop(0)
@@ -211,13 +79,7 @@ def _destination_for(
     if not parts:
         raise ArchiveError(f"Entrée ZIP sans nom exploitable: {info.filename!r}")
 
-    source_filename = parts[-1]
-    normalized_filename = normalize_bin_name(source_filename)
-    normalized_directories = [normalize_directory_name(part) for part in parts[:-1]]
-    final_directories, final_filename = _fit_final_path(
-        normalized_directories, normalized_filename, device_root
-    )
-    destination = output_dir.joinpath(*final_directories, final_filename)
+    destination = output_dir.joinpath(*parts)
 
     # Defence in depth: ensure platform-specific path handling cannot escape output.
     output_resolved = output_dir.resolve()
@@ -225,20 +87,7 @@ def _destination_for(
     if os.path.commonpath((output_resolved, destination_resolved)) != str(output_resolved):
         raise ArchiveError(f"Chemin ZIP hors de la destination: {info.filename!r}")
 
-    normalized = normalized_filename != source_filename
-    shortened = final_directories != parts[:-1] or final_filename != normalized_filename
-    return destination, normalized, shortened
-
-
-def _legacy_destination(
-    info: zipfile.ZipInfo, output_dir: Path, stripped_root: str | None
-) -> Path:
-    parts = list(_safe_parts(info.filename))
-    if stripped_root is not None and parts[0] == stripped_root:
-        parts.pop(0)
-    if parts[-1].lower().endswith(".bin"):
-        parts[-1] = LEGACY_BIN_PREFIX.sub("", parts[-1], count=1) or parts[-1]
-    return output_dir.joinpath(*parts)
+    return destination
 
 
 def _same_stream(info: zipfile.ZipInfo, source: BinaryIO, destination: Path) -> bool:
@@ -281,8 +130,6 @@ def _choose_destination(
     candidate = destination
     index = 2
     signature = _signature(info)
-    archive_collision = False
-
     while True:
         key = os.path.normcase(str(candidate.resolve()))
         planned_signature = occupied.get(key)
@@ -292,7 +139,6 @@ def _choose_destination(
                 report.identical += 1
                 return None, "identique"
             conflict_exists = True
-            archive_collision = True
         else:
             conflict_exists = candidate.exists()
             if conflict_exists and candidate.is_file() and _same_member(
@@ -312,10 +158,6 @@ def _choose_destination(
             report.skipped += 1
             return None, "ignoré"
         if policy == "overwrite":
-            if archive_collision:
-                candidate = _renamed_candidate(destination, index)
-                index += 1
-                continue
             if candidate.is_dir():
                 raise ConflictError(
                     f"Impossible de remplacer un dossier par un fichier: {candidate}"
@@ -355,10 +197,10 @@ def extract_archive(
     *,
     conflict: ConflictPolicy = "overwrite",
     keep_root: bool = False,
-    device_root: str = "amiibo",
     dry_run: bool = False,
     verbose: bool = False,
     show_progress: bool = False,
+    progress_callback: ExtractionProgress | None = None,
 ) -> ExtractionReport:
     """Extract an archive safely and return operation counters."""
     report = ExtractionReport()
@@ -376,20 +218,8 @@ def extract_archive(
         stripped_root = None if keep_root else _common_root(entries)
 
         total = len(entries)
-        migrations: list[tuple[zipfile.ZipInfo, Path, Path]] = []
         for position, info in enumerate(entries, start=1):
-            destination, normalized, shortened = _destination_for(
-                info, output_dir, stripped_root, device_root
-            )
-            report.normalized += int(normalized)
-            report.shortened += int(shortened)
-            migrations.append(
-                (
-                    info,
-                    _legacy_destination(info, output_dir, stripped_root),
-                    destination,
-                )
-            )
+            destination = _destination_for(info, output_dir, stripped_root)
             selected, action = _choose_destination(
                 archive=archive,
                 info=info,
@@ -403,9 +233,9 @@ def extract_archive(
                 if verbose:
                     print(f"{action:10} {destination}")
                 elif show_progress:
-                    _show_progress(
-                        position, total, "raccourci" if shortened else action
-                    )
+                    _show_progress(position, total, action)
+                if progress_callback is not None:
+                    progress_callback(position, total, action, destination)
                 continue
 
             if action == "renommé":
@@ -415,29 +245,13 @@ def extract_archive(
             report.extracted += 1
 
             if verbose:
-                label = "raccourci" if shortened else action
-                print(f"{label:10} {selected}")
+                print(f"{action:10} {selected}")
             if not dry_run:
                 _write_member(archive, info, selected)
             if show_progress:
-                _show_progress(position, total, "raccourci" if shortened else action)
-
-        if not dry_run:
-            for info, legacy, final in migrations:
-                if legacy == final or not legacy.is_file():
-                    continue
-                if _same_member(archive, info, legacy):
-                    legacy.unlink()
-                    report.legacy_removed += 1
-            for directory in sorted(
-                (path for path in output_dir.rglob("*") if path.is_dir()),
-                key=lambda path: len(path.parts),
-                reverse=True,
-            ):
-                try:
-                    directory.rmdir()
-                except OSError:
-                    pass
+                _show_progress(position, total, action)
+            if progress_callback is not None:
+                progress_callback(position, total, action, selected)
 
     return report
 
@@ -454,8 +268,8 @@ def _show_progress(current: int, total: int, action: str) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Extrait un ZIP vers data/ et retire les préfixes "
-            "'[JEU] identifiant - ' des fichiers .bin."
+            "Extrait fidèlement un ZIP vers data/ sans renommer ses fichiers "
+            "ou ses dossiers."
         )
     )
     parser.add_argument(
@@ -549,7 +363,6 @@ def main(argv: list[str] | None = None) -> int:
                 args.output,
                 conflict=args.conflict,
                 keep_root=args.keep_root,
-                device_root=clean_device_root,
                 dry_run=args.dry_run,
                 verbose=args.verbose,
                 show_progress=not args.verbose,
@@ -564,10 +377,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{report.renamed} renommé(s) pour conflit, "
             f"{report.overwritten} remplacé(s), "
             f"{report.identical} déjà identique(s), "
-            f"{report.skipped} ignoré(s), "
-            f"{report.normalized} nom(s) normalisé(s), "
-            f"{report.shortened} chemin(s) raccourci(s), "
-            f"{report.legacy_removed} ancien(s) chemin(s) nettoyé(s)."
+            f"{report.skipped} ignoré(s)."
         )
 
     if args.sync:

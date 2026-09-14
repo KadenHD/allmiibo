@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-14T09:35:00+02:00",
+  "title": "Design System: Allmiibo Manager",
+  "extensions": {
+    "colorMeta": {
+      "graphite-canvas": {
+        "role": "neutral",
+        "displayName": "Graphite de toile",
+        "canonical": "#0f1318",
+        "tonalRamp": ["#0a0d10", "#0f1318", "#151a20", "#202832", "#34404b", "#65717c", "#99a4af", "#edf2f6"]
+      },
+      "graphite-surface": {
+        "role": "neutral",
+        "displayName": "Graphite de surface",
+        "canonical": "#151a20",
+        "tonalRamp": ["#0a0d10", "#0f1318", "#151a20", "#202832", "#34404b", "#65717c", "#99a4af", "#edf2f6"]
+      },
+      "graphite-raised": {
+        "role": "neutral",
+        "displayName": "Graphite élevé",
+        "canonical": "#202832",
+        "tonalRamp": ["#0a0d10", "#0f1318", "#151a20", "#202832", "#34404b", "#65717c", "#99a4af", "#edf2f6"]
+      },
+      "graphite-control": {
+        "role": "neutral",
+        "displayName": "Graphite de contrôle",
+        "canonical": "#222a33",
+        "tonalRamp": ["#0a0d10", "#0f1318", "#151a20", "#222a33", "#34404b", "#65717c", "#99a4af", "#edf2f6"]
+      },
+      "graphite-control-hover": {
+        "role": "neutral",
+        "displayName": "Graphite de contrôle actif",
+        "canonical": "#2a3540",
+        "tonalRamp": ["#0a0d10", "#0f1318", "#151a20", "#2a3540", "#34404b", "#65717c", "#99a4af", "#edf2f6"]
+      },
+      "graphite-tree": {
+        "role": "neutral",
+        "displayName": "Graphite d'arborescence",
+        "canonical": "#101419",
+        "tonalRamp": ["#0a0d10", "#101419", "#151a20", "#202832", "#34404b", "#65717c", "#99a4af", "#edf2f6"]
+      },
+      "graphite-border": {
+        "role": "neutral",
+        "displayName": "Bord graphite",
+        "canonical": "#34404b",
+        "tonalRamp": ["#0a0d10", "#0f1318", "#151a20", "#202832", "#34404b", "#65717c", "#99a4af", "#edf2f6"]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Texte principal",
+        "canonical": "#edf2f6",
+        "tonalRamp": ["#0a0d10", "#202832", "#34404b", "#65717c", "#87939e", "#99a4af", "#c9d2da", "#edf2f6"]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Texte atténué",
+        "canonical": "#99a4af",
+        "tonalRamp": ["#0a0d10", "#202832", "#34404b", "#65717c", "#87939e", "#99a4af", "#c9d2da", "#edf2f6"]
+      },
+      "coral-import": {
+        "role": "primary",
+        "displayName": "Corail d'import",
+        "canonical": "#e9785b",
+        "tonalRamp": ["#1a0c08", "#5c261c", "#9b4434", "#e9785b", "#f18a6e", "#f5a894", "#facbbf", "#fff0ec"]
+      },
+      "coral-import-hover": {
+        "role": "primary",
+        "displayName": "Corail actif",
+        "canonical": "#f18a6e",
+        "tonalRamp": ["#1a0c08", "#5c261c", "#9b4434", "#e9785b", "#f18a6e", "#f5a894", "#facbbf", "#fff0ec"]
+      },
+      "coral-ink": {
+        "role": "primary",
+        "displayName": "Encre corail",
+        "canonical": "#1a0c08",
+        "tonalRamp": ["#1a0c08", "#5c261c", "#9b4434", "#e9785b", "#f18a6e", "#f5a894", "#facbbf", "#fff0ec"]
+      },
+      "mint-status": {
+        "role": "secondary",
+        "displayName": "Menthe de statut",
+        "canonical": "#58d6a5",
+        "tonalRamp": ["#0c1d18", "#18392f", "#235a49", "#347d65", "#58d6a5", "#79e1b8", "#b1f0d6", "#e9fff6"]
+      },
+      "mint-connected-surface": {
+        "role": "secondary",
+        "displayName": "Surface menthe connectée",
+        "canonical": "#18392f",
+        "tonalRamp": ["#0c1d18", "#18392f", "#235a49", "#347d65", "#58d6a5", "#79e1b8", "#b1f0d6", "#e9fff6"]
+      },
+      "mint-connected-text": {
+        "role": "secondary",
+        "displayName": "Texte menthe connecté",
+        "canonical": "#79e1b8",
+        "tonalRamp": ["#0c1d18", "#18392f", "#235a49", "#347d65", "#58d6a5", "#79e1b8", "#b1f0d6", "#e9fff6"]
+      },
+      "blue-search": {
+        "role": "tertiary",
+        "displayName": "Bleu de recherche",
+        "canonical": "#68a8ff",
+        "tonalRamp": ["#0c1421", "#17233a", "#234369", "#356ca8", "#68a8ff", "#82b8ff", "#bed8ff", "#edf5ff"]
+      },
+      "blue-link": {
+        "role": "tertiary",
+        "displayName": "Bleu de lien",
+        "canonical": "#82b8ff",
+        "tonalRamp": ["#0c1421", "#17233a", "#234369", "#356ca8", "#68a8ff", "#82b8ff", "#bed8ff", "#edf5ff"]
+      },
+      "blue-guide": {
+        "role": "tertiary",
+        "displayName": "Bleu de guide",
+        "canonical": "#17233a",
+        "tonalRamp": ["#0c1421", "#17233a", "#234369", "#356ca8", "#68a8ff", "#82b8ff", "#bed8ff", "#edf5ff"]
+      }
+    },
+    "typographyMeta": {
+      "display": {"displayName": "Display", "purpose": "Titre central de l'état de connexion."},
+      "brand": {"displayName": "Brand", "purpose": "Nom du produit dans l'en-tête."},
+      "title": {"displayName": "Title", "purpose": "Repère compact de section."},
+      "body": {"displayName": "Body", "purpose": "Commandes, fichiers, consignes et métadonnées."},
+      "label": {"displayName": "Label", "purpose": "Badge et action compacte mise en avant."}
+    },
+    "shadows": [],
+    "motion": [
+      {"name": "bluetooth-search-pulse", "value": "45ms frame interval; phase +0.025", "purpose": "Ondes discrètes autour de l'appareil pendant la recherche."},
+      {"name": "success-confirmation-hold", "value": "5000ms", "purpose": "Temps de lecture d'une confirmation avant retour à l'état prêt."}
+    ],
+    "breakpoints": [
+      {"name": "minimum-window", "value": "720px × 520px"}
+    ]
+  },
+  "components": [
+    {
+      "name": "Bouton d'import",
+      "kind": "button",
+      "refersTo": "button-import",
+      "description": "Action prioritaire unique pour importer le ZIP officiel.",
+      "html": "<button class=\"ds-button-import\">Importer le ZIP</button>",
+      "css": ".ds-button-import { background: #e9785b; color: #1a0c08; border: 0; border-radius: 7px; padding: 8px 11px; font: 700 13px \"Segoe UI Variable\", \"Segoe UI\"; } .ds-button-import:hover, .ds-button-import:focus-visible { background: #f18a6e; } .ds-button-import:active { background: #e9785b; }"
+    },
+    {
+      "name": "Bouton utilitaire",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Commande courante de la barre d'actions responsive.",
+      "html": "<button class=\"ds-button-secondary\">Ajouter un dossier</button>",
+      "css": ".ds-button-secondary { background: #222a33; color: #edf2f6; border: 1px solid #34404b; border-radius: 7px; padding: 8px 11px; font: 13px \"Segoe UI Variable\", \"Segoe UI\"; } .ds-button-secondary:hover, .ds-button-secondary:focus-visible { background: #2a3540; border-color: #506170; } .ds-button-secondary:active { background: #202832; }"
+    },
+    {
+      "name": "Badge connecté",
+      "kind": "chip",
+      "refersTo": "connection-chip-connected",
+      "description": "Confirmation compacte de l'appareil actif.",
+      "html": "<span class=\"ds-connection-chip\">● Allmiibo</span>",
+      "css": ".ds-connection-chip { display: inline-block; background: #18392f; color: #79e1b8; border-radius: 11px; padding: 4px 10px; font: 600 13px \"Segoe UI Variable\", \"Segoe UI\"; }"
+    },
+    {
+      "name": "Bandeau Drive et firmware",
+      "kind": "card",
+      "refersTo": "guide-banner",
+      "description": "Accès persistant à la bibliothèque partagée et aux ressources firmware.",
+      "html": "<section class=\"ds-guide\"><div><span>Téléchargez le dossier Google Drive en ZIP, puis importez-le.</span><a href=\"#\">Ouvrir le Drive ↗</a></div><div><span>Kirby Air Riders : firmware Pixl.js 2.16+ requis.</span><a href=\"#\">Mise à jour DFU ↗</a><a href=\"#\">Releases ↗</a></div></section>",
+      "css": ".ds-guide { display: flex; justify-content: space-between; align-items: center; gap: 14px; background: #17233a; color: #edf2f6; border-radius: 10px; padding: 10px 12px 10px 14px; font: 13px \"Segoe UI Variable\", \"Segoe UI\"; } .ds-guide a { color: #82b8ff; text-decoration: none; } .ds-guide a:hover, .ds-guide a:focus-visible { color: #acd1ff; text-decoration: underline; }"
+    },
+    {
+      "name": "Panneau de bibliothèque",
+      "kind": "card",
+      "refersTo": "explorer-panel",
+      "description": "Conteneur dominant de l'arborescence distante.",
+      "html": "<section class=\"ds-explorer\"><header><strong>Bibliothèque</strong><span>3 amiibo(s) · 3 dossier(s)</span></header><div class=\"ds-explorer-body\">📁 Animal Crossing<br>&nbsp;&nbsp;&nbsp;📄 Isabelle.bin</div></section>",
+      "css": ".ds-explorer { overflow: hidden; background: #151a20; color: #edf2f6; border: 1px solid #28313b; border-radius: 12px; font: 13px \"Segoe UI Variable\", \"Segoe UI\"; } .ds-explorer header { display: flex; justify-content: space-between; padding: 10px 14px; } .ds-explorer header span { color: #99a4af; } .ds-explorer-body { min-height: 112px; padding: 8px 14px; background: #101419; line-height: 28px; }"
+    },
+    {
+      "name": "Ligne d'arborescence",
+      "kind": "custom",
+      "description": "Ligne dense précédée d'une sélection de suppression disponible pour les fichiers et dossiers autorisés.",
+      "html": "<div class=\"ds-tree-row\" tabindex=\"0\"><input type=\"checkbox\" aria-label=\"Sélectionner Link.bin pour suppression\"><span>📄 Link.bin</span><span>Amiibo</span></div>",
+      "css": ".ds-tree-row { display: grid; grid-template-columns: 46px 1fr auto; gap: 8px; min-height: 28px; align-items: center; padding: 0 8px 0 0; background: #101419; color: #edf2f6; font: 13px \"Segoe UI Variable\", \"Segoe UI\"; } .ds-tree-row input { justify-self: center; } .ds-tree-row:hover { background: #1b242c; } .ds-tree-row:focus-visible, .ds-tree-row:active { background: #244c40; color: #f4fff9; }"
+    },
+    {
+      "name": "Panneau d'activité",
+      "kind": "card",
+      "description": "Preuve persistante de l'état courant avec détails repliables.",
+      "html": "<section class=\"ds-activity\"><span>Prêt</span><button>Détails</button></section>",
+      "css": ".ds-activity { display: flex; align-items: center; justify-content: space-between; background: #151a20; color: #c9d2da; border-radius: 10px; padding: 10px 14px; font: 13px \"Segoe UI Variable\", \"Segoe UI\"; } .ds-activity button { background: transparent; border: 0; color: #82b8ff; padding: 5px; font: inherit; } .ds-activity button:hover, .ds-activity button:focus-visible { color: #acd1ff; text-decoration: underline; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "La Console Silencieuse",
+    "overview": "Allmiibo Manager est un explorateur d'appareil, pas un tableau de bord. L'appareil est l'espace de travail et les fichiers locaux ne sont que des entrées : l'arborescence distante garde donc la priorité visuelle, tandis que la connexion, les commandes et l'activité restent lisibles sans la concurrencer.\n\nLe monde visuel est une utilité graphite calme, proche de la densité de l'Explorateur Windows. La menthe confirme la présence de l'appareil, le corail porte l'unique action d'import globale et le bleu guide la recherche ou l'aide. La narration reste stable : connecter, voir, modifier avec précision, puis confirmer.",
+    "keyCharacteristics": [
+      "L'appareil est toujours présenté comme la source de vérité.",
+      "Les contrôles sont natifs, directs et compacts ; la zone de fichiers respire davantage.",
+      "Une seule action corail domine la barre de commandes.",
+      "Les états techniques sont traduits en confirmations ou instructions lisibles.",
+      "L'illustration Bluetooth est vectorielle et discrètement animée pendant la recherche."
+    ],
+    "rules": [
+      {"name": "The Three Signals Rule", "body": "Le corail signifie importer, la menthe signifie connecté ou réussi, et le bleu signifie rechercher, apprendre ou naviguer ; ne jamais échanger ces rôles.", "section": "colors"},
+      {"name": "The One Coral Action Rule", "body": "Une surface ne montre qu'une seule action corail prioritaire à la fois.", "section": "colors"},
+      {"name": "The Native Voice Rule", "body": "Utiliser la pile Segoe UI existante et réserver les graisses fortes aux titres, au badge et à l'action principale.", "section": "typography"},
+      {"name": "The Tree Owns the Space Rule", "body": "Après la connexion, toute expansion verticale revient d'abord à l'arborescence distante.", "section": "layout"},
+      {"name": "The Tonal Depth Rule", "body": "Créer la hiérarchie par contraste de surface et bordure fine, jamais par une accumulation d'ombres.", "section": "elevation"}
+    ],
+    "dos": [
+      "Do laisser l'arborescence occuper l'essentiel de l'espace connecté.",
+      "Do afficher la destination avant un envoi et conserver une preuve de l'opération dans l'activité.",
+      "Do employer le libellé complet d'une action tant que la barre d'outils peut l'accueillir.",
+      "Do traduire les états Bluetooth en une instruction utilisateur et garder le diagnostic brut dans les détails.",
+      "Do conserver une case visible mais désactivée pour fav, data et leurs parents.",
+      "Do maintenir le triptyque connecter, voir, modifier, confirmer dans toute nouvelle surface."
+    ],
+    "donts": [
+      "Don't présenter les chemins internes, lettres de disque ou fichiers temporaires comme des concepts utilisateur.",
+      "Don't multiplier les cartes, badges ou couleurs d'accent autour de l'arborescence.",
+      "Don't utiliser le corail pour une action destructive ou secondaire.",
+      "Don't remplacer en mode compact tous les libellés par des icônes seules.",
+      "Don't ajouter des ombres décoratives à des surfaces déjà distinguées tonalement.",
+      "Don't proposer une suppression ou un renommage qui contourne la protection de fav ou data."
+    ]
+  }
+}

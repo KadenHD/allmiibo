@@ -2,3 +2,7 @@ amiiboall*.zip
 /data/
 __pycache__/
 *.py[cod]
+/build/
+/dist/
+/AllmiiboDebug.spec
+/.venv-build/

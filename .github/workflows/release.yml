@@ -1,0 +1,64 @@
+name: Build Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-executable:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r ./requirements-build.txt
+
+      - name: Run tests
+        run: python -m unittest discover -v
+
+      - name: Build executable
+        shell: pwsh
+        run: python -m PyInstaller --noconfirm --clean ./AllmiiboManager.spec
+
+      - name: Smoke-test executable startup
+        shell: pwsh
+        run: |
+          $process = Start-Process ./dist/AllmiiboManager.exe -ArgumentList "--self-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+
+      - name: Create checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash ./dist/AllmiiboManager.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  AllmiiboManager.exe" | Set-Content ./dist/AllmiiboManager.exe.sha256
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AllmiiboManager-Windows
+          path: |
+            dist/AllmiiboManager.exe
+            dist/AllmiiboManager.exe.sha256
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/AllmiiboManager.exe
+            dist/AllmiiboManager.exe.sha256
+          generate_release_notes: true
