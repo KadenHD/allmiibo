@@ -46,6 +46,13 @@ jobs:
           $hash = (Get-FileHash ./dist/AllmiiboManager.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  AllmiiboManager.exe" | Set-Content ./dist/AllmiiboManager.exe.sha256
 
+      - name: Package legal notices
+        shell: pwsh
+        run: |
+          Copy-Item ./LICENSE ./dist/LICENSE.txt
+          Copy-Item ./THIRD_PARTY_NOTICES.md ./dist/THIRD_PARTY_NOTICES.md
+          Copy-Item ./DISCLAIMER.md ./dist/DISCLAIMER.md
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -53,6 +60,9 @@ jobs:
           path: |
             dist/AllmiiboManager.exe
             dist/AllmiiboManager.exe.sha256
+            dist/LICENSE.txt
+            dist/THIRD_PARTY_NOTICES.md
+            dist/DISCLAIMER.md
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
@@ -61,4 +71,7 @@ jobs:
           files: |
             dist/AllmiiboManager.exe
             dist/AllmiiboManager.exe.sha256
+            dist/LICENSE.txt
+            dist/THIRD_PARTY_NOTICES.md
+            dist/DISCLAIMER.md
           generate_release_notes: true

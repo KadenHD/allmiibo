@@ -105,6 +105,31 @@ class RepositoryLanguageTests(unittest.TestCase):
 
         self.assertEqual(violations, [], "\n".join(violations))
 
+    def test_legal_documents_are_present_and_packaged(self) -> None:
+        required_documents = {
+            "LICENSE",
+            "DISCLAIMER.md",
+            "THIRD_PARTY_NOTICES.md",
+        }
+        for relative_path in required_documents:
+            with self.subTest(relative_path=relative_path):
+                self.assertTrue((ROOT / relative_path).is_file())
+
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("figures that you physically own", readme)
+        self.assertIn("[Project license](LICENSE)", readme)
+
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        for packaged_name in (
+            "dist/LICENSE.txt",
+            "dist/DISCLAIMER.md",
+            "dist/THIRD_PARTY_NOTICES.md",
+        ):
+            with self.subTest(packaged_name=packaged_name):
+                self.assertIn(packaged_name, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,10 @@
 # Development status
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 ## Current target
 
-Release the completed always-connected Allmiibo library manager as v2.0.0.
+Publish the licensing and responsible-use update as v2.0.1.
 
 ## Completed before this redesign
 
@@ -53,10 +53,15 @@ Release the completed always-connected Allmiibo library manager as v2.0.0.
 - [x] Update README.md and DESIGN.md.
 - [x] Convert every tracked code, UI, test, comment, and documentation string to English.
 - [x] Prepare v2.0.0 release notes and release metadata.
+- [x] Add the MIT project license and third-party open-source notices.
+- [x] Add a responsible-use notice for user-provided amiibo data.
+- [x] Include legal notices in local and GitHub release packages.
+- [x] Prepare the v2.0.1 licensing release.
 
 ## Validation status
 
-- 46 unit tests pass, including the repository English-only guard, folder
+- 47 unit tests pass, including the legal-package and repository English-only
+  guards, folder
   conflicts, `.bin` extension locking,
   root selection, the `More` menu, global selection, protected Qt checkboxes,
   immediate cancellation of an active BLE scan, and the absence of new BLE

@@ -3,6 +3,18 @@
 A Windows application for managing an Allmiibo/Pixl.js library directly over
 Bluetooth without exposing the device drives or internal folders.
 
+## Legal and responsible use
+
+Allmiibo Manager does not include or distribute amiibo data files. Use it only
+with amiibo data dumped from figures that you physically own, and comply with
+the laws that apply in your jurisdiction. You are solely responsible for the
+files you import and for how you use the software.
+
+The project does not encourage piracy or unauthorized copying. The maintainer
+is not responsible for user-supplied content or unlawful or improper use, to
+the maximum extent permitted by applicable law. See the full
+[responsible-use notice](DISCLAIMER.md).
+
 ## Usage
 
 1. Put the Allmiibo in **Bluetooth Transmission** mode.
@@ -28,6 +40,9 @@ the upload stops with an explicit error instead of silently changing the name.
 Open the [amiibo Google Drive folder](https://drive.google.com/drive/folders/1fNo0qv-6GnMwNWXwZ6WLZI5LQzH-jX9f),
 download the folder as a ZIP archive, then use **Import ZIP** in the application.
 Names in this archive are already final and are preserved without changes.
+
+The external archive is not hosted or controlled by this project. Only import
+and retain data corresponding to amiibo figures that you physically own.
 
 After downloading it, click **Import ZIP** or drop the archive into the
 application. The update follows these rules:
@@ -135,8 +150,8 @@ The `.github/workflows/release.yml` workflow runs the tests, builds the `.exe`,
 smoke-tests it, and generates a SHA-256 checksum.
 
 ```powershell
-git tag v2.0.0
-git push origin v2.0.0
+git tag v2.0.1
+git push origin v2.0.1
 ```
 
 Any `v*` tag automatically creates a GitHub Release. The executable is not code
@@ -168,4 +183,8 @@ shortening.
 - [Application workflow](docs/APP_WORKFLOW.md)
 - [Development status](docs/DEVELOPMENT_STATUS.md)
 - [v2.0.0 release notes](docs/RELEASE_NOTES_v2.0.0.md)
+- [v2.0.1 release notes](docs/RELEASE_NOTES_v2.0.1.md)
+- [Project license](LICENSE)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
+- [Legal and responsible-use notice](DISCLAIMER.md)
 - [Pixl.js BLE protocol](https://github.com/solosky/pixl.js/blob/main/docs/en/05%2B1-ble_protocol.md)
